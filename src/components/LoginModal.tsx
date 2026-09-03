@@ -9,13 +9,7 @@ interface LoginModalProps {
 }
 
 const DAMYANG_SCHOOLS = [
-  '담양여자중학교',
-  '담양중학교',
-  '담양수북중학교',
-  '한재중학교',
-  '창평중학교',
-  '고서중학교',
-  '금성중학교'
+  '담양여자중학교'
 ];
 
 export const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onClose, onLoginSuccess }) => {

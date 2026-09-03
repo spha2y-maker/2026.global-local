@@ -55,17 +55,19 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({ onInspec
   const completedStudents = submissions.filter(s => s.isCompleted || s.totalStamps === 8).length;
 
   const filteredSubmissions = submissions.filter((s) => {
-    const matchesSchool = filterSchool === '전체' || s.school === filterSchool;
+    const matchesFilter =
+      filterSchool === '전체' ||
+      (filterSchool === '완료(8스탬프)' && (s.isCompleted || s.totalStamps === 8)) ||
+      (filterSchool === '작성중' && !s.isCompleted && s.totalStamps < 8);
     const matchesSearch = s.studentName.includes(searchTerm) || s.studentId.includes(searchTerm);
-    return matchesSchool && matchesSearch;
+    return matchesFilter && matchesSearch;
   });
 
   const handleSimulateStudentSubmission = async () => {
     const randomId = `30${Math.floor(Math.random() * 3 + 1)}${String(Math.floor(Math.random() * 25 + 1)).padStart(2, '0')}`;
     const sampleNames = ['박민우', '정지민', '강도현', '윤서아', '최서준', '송다은'];
     const randomName = sampleNames[Math.floor(Math.random() * sampleNames.length)];
-    const schools = ['담양중학교', '담양여자중학교', '담양수북중학교', '한재중학교'];
-    const randomSchool = schools[Math.floor(Math.random() * schools.length)];
+    const randomSchool = '담양여자중학교';
 
     const mockEntries: Record<string, any> = {};
     PLACES_DATA.forEach(p => {
@@ -183,8 +185,11 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({ onInspec
       {/* Filter and Search Bar */}
       <div className="flex flex-col sm:flex-row items-center justify-between gap-4 bg-white p-4 rounded-3xl border border-slate-200 shadow-xs">
         <div className="flex items-center gap-2 w-full sm:w-auto overflow-x-auto pb-1 sm:pb-0">
-          <School className="w-4 h-4 text-emerald-600 shrink-0" />
-          {['전체', '담양여자중학교', '담양중학교', '담양수북중학교', '한재중학교'].map(s => (
+          <span className="px-3 py-1.5 rounded-xl text-xs font-bold bg-emerald-100/90 text-emerald-800 border border-emerald-200 flex items-center gap-1.5 whitespace-nowrap">
+            <School className="w-3.5 h-3.5 text-emerald-700" />
+            담양여자중학교
+          </span>
+          {['전체', '완료(8스탬프)', '작성중'].map(s => (
             <button
               key={s}
               onClick={() => setFilterSchool(s)}

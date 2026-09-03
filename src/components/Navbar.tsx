@@ -1,8 +1,10 @@
 import React from 'react';
 import { 
+  Home,
   Calendar, 
   MapPin, 
   Award, 
+  Luggage,
   Plane, 
   Languages, 
   CloudSun, 
@@ -37,9 +39,11 @@ export const Navbar: React.FC<NavbarProps> = ({
   adminNewSubmissionsCount = 0
 }) => {
   const navItems = [
+    { id: 'home', label: '홈', icon: Home, emoji: '🏠' },
     { id: 'schedule', label: '탐방 일정', icon: Calendar, emoji: '📅' },
     { id: 'places', label: '8대 방문지 워크북', icon: MapPin, emoji: '🗺️' },
     { id: 'stamps', label: '사진인증 스탬프', icon: Award, emoji: '💮', badge: `${stampsCount}/${totalStamps}` },
+    { id: 'toolkit', label: '여행 툴킷', icon: Luggage, emoji: '🧳' },
     { id: 'immigration', label: '입국심사 영어', icon: Plane, emoji: '✈️' },
     { id: 'chinese', label: '필수 중국어', icon: Languages, emoji: '🇨🇳' },
     { id: 'weather', label: '기후 조사', icon: CloudSun, emoji: '⛅' },
@@ -60,7 +64,7 @@ export const Navbar: React.FC<NavbarProps> = ({
         <div className="flex items-center justify-between h-16 sm:h-20">
           
           {/* Brand Logo & Title */}
-          <div className="flex items-center space-x-3 cursor-pointer" onClick={() => setActiveTab('schedule')}>
+          <div className="flex items-center space-x-3 cursor-pointer" onClick={() => setActiveTab('home')}>
             <div className="relative flex items-center justify-center w-11 h-11 rounded-2xl bg-emerald-50 border border-emerald-200 shadow-xs text-xl">
               🎋
               <span className="absolute -top-1 -right-1 flex h-3 w-3">

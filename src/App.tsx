@@ -1,9 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { Navbar } from './components/Navbar';
 import { LoginModal } from './components/LoginModal';
+import { HomeView } from './components/HomeView';
 import { ScheduleView } from './components/ScheduleView';
 import { PlacesWorkbookView } from './components/PlacesWorkbookView';
 import { StampTourView } from './components/StampTourView';
+import { TravelToolkitView } from './components/TravelToolkitView';
 import { ImmigrationEnglishView } from './components/ImmigrationEnglishView';
 import { ChinesePhrasesView } from './components/ChinesePhrasesView';
 import { WeatherInvestigationView } from './components/WeatherInvestigationView';
@@ -44,7 +46,7 @@ export default function App() {
     };
   });
 
-  const [activeTab, setActiveTab] = useState<string>('schedule');
+  const [activeTab, setActiveTab] = useState<string>('home');
   const [loginModalOpen, setLoginModalOpen] = useState<boolean>(false);
   const [selectedPlaceId, setSelectedPlaceId] = useState<string>(PLACES_DATA[0].id);
 
@@ -237,6 +239,15 @@ export default function App() {
 
       {/* Main Responsive Viewport */}
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8">
+        {activeTab === 'home' && (
+          <HomeView
+            currentUser={currentUser}
+            entries={workbookEntries}
+            setActiveTab={setActiveTab}
+            onOpenLogin={() => setLoginModalOpen(true)}
+          />
+        )}
+
         {activeTab === 'schedule' && (
           <ScheduleView
             onNavigateToPlace={(id) => {
@@ -269,6 +280,8 @@ export default function App() {
             onOpenLogin={() => setLoginModalOpen(true)}
           />
         )}
+
+        {activeTab === 'toolkit' && <TravelToolkitView />}
 
         {activeTab === 'immigration' && <ImmigrationEnglishView />}
 

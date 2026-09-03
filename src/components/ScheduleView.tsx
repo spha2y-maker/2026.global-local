@@ -22,17 +22,17 @@ export const ScheduleView: React.FC<{ onNavigateToPlace?: (id: string) => void }
       day: 1,
       date: '10.13 (화)',
       title: '제1일차 : 담양 출정 & 상하이 심장부 입성',
-      summary: '담양 집결 ➔ 인천공항 ➔ 상해 푸둥공항 ➔ 남경로 보행가 ➔ 황포강 유람 & 외탄 야경',
+      summary: '담양 집결 ➔ 인천공항 ➔ 상하이 푸둥공항 ➔ 남경로 보행가 ➔ 황포강 유람 & 외탄 야경',
       meals: {
         breakfast: '국내식 (출발 도시락)',
         lunch: '기내식 (국제선 항공)',
         dinner: '르네상스 호텔 샤브샤브 특식'
       },
       schedule: [
-        { time: '06:00', type: 'move', title: '담양 집결 후 전용차량으로 인천공항 이동', desc: '담양 출발, 단체 인원 점검 및 안전 교육' },
+        { time: '07:00', type: 'move', title: '담양 집결 후 전용차량으로 인천공항 이동 (07:00 출발)', desc: '담양 출발(07:00), 단체 인원 점검 및 안전 교육' },
         { time: '11:00', type: 'airport', title: '인천 국제공항(제2여객터미널) 도착 & 출국 수속', desc: '항공권 발권, 수하물 위탁, 출국 심사' },
         { time: '14:00', type: 'flight', title: '인천 출발 / 상하이 푸둥공항 향발', desc: '비행 소요시간 약 2시간, 기내식 제공' },
-        { time: '15:00', type: 'arrive', title: '상해 푸둥공항 도착 후 입국수속', desc: '시차: 한국보다 1시간 느림 (-1시간), 입국심사대 영어/중국어 실습' },
+        { time: '15:00', type: 'arrive', title: '상하이 푸둥공항 도착 후 입국수속', desc: '시차: 한국보다 1시간 느림 (-1시간), 입국심사대 영어/중국어 실습' },
         { time: '15:30', type: 'guide', title: '현지 안내원 미팅 & 전용차량 탑승', desc: '상하이 도심으로 이동하며 오리엔테이션' },
         { 
           time: '17:30', 
@@ -59,7 +59,7 @@ export const ScheduleView: React.FC<{ onNavigateToPlace?: (id: string) => void }
       summary: '루쉰공원(매헌기념관) ➔ 임시정부청사 ➔ 영사관 특강 ➔ 동방명주 ➔ 예원 옛거리',
       meals: {
         breakfast: '호텔 조식 뷔페',
-        lunch: '사우스뷰티 (사천 전통 요리)',
+        lunch: '금미로 식당 (광동요리)',
         dinner: '해녀제주식당 (한식 삼겹살)'
       },
       schedule: [
@@ -78,7 +78,7 @@ export const ScheduleView: React.FC<{ onNavigateToPlace?: (id: string) => void }
           desc: '1926~1932년 김구 선생 집무실 보존지, 헌법 법통의 성지 견학',
           placeId: 'prov_gov'
         },
-        { time: '12:00', type: 'meal', title: '중식 (사우스뷰티 사천요리)', desc: '중국 4대 요리 중 하나인 사천 음식 문화 체험' },
+        { time: '12:00', type: 'meal', title: '중식 (금미로 식당 광동요리)', desc: '중국 4대 요리 중 하나인 광동 음식 문화 체험' },
         { time: '13:30', type: 'lecture', title: '주상하이 대한민국 총영사관 외교관 특별 강연', desc: '한·중 관계의 역사와 미래, 글로벌 외교 진로 탐색' },
         { 
           time: '16:00', 
@@ -114,7 +114,7 @@ export const ScheduleView: React.FC<{ onNavigateToPlace?: (id: string) => void }
           time: '08:00', 
           type: 'spot', 
           title: '상하이 과학기술관 (푸둥 센추리)', 
-          desc: '로봇 세상, AI 인공지능, 우주 탐사선 체험, 기초 물리학 원리 실험',
+          desc: '로봇 세상, AI 인공지능, 생명의 계곡, 기초 물리학 원리 실험',
           placeId: 'science_tech_museum'
         },
         { time: '12:00', type: 'meal', title: '중식 (하랑한식당)', desc: '오후 디즈니랜드 모둠별 미션 대비 충전' },
@@ -134,7 +134,7 @@ export const ScheduleView: React.FC<{ onNavigateToPlace?: (id: string) => void }
       day: 4,
       date: '10.16 (금)',
       title: '제4일차 : 상하이에서 담양으로, 미래를 향한 귀환',
-      summary: '상해 푸둥공항 ➔ 인천공항 ➔ 담양 도착 & 해단식',
+      summary: '상하이 푸둥공항 ➔ 인천공항 ➔ 담양 도착 & 해단식',
       meals: {
         breakfast: '호텔 조식',
         lunch: '기내식 (항공기 내)',
@@ -142,9 +142,9 @@ export const ScheduleView: React.FC<{ onNavigateToPlace?: (id: string) => void }
       },
       schedule: [
         { time: '07:00', type: 'hotel', title: '호텔 조식 후 체크아웃', desc: '개인 짐 및 여권, 귀중품 점검' },
-        { time: '08:00', type: 'move', title: '상해 푸둥 국제공항으로 이동', desc: '전용차량 이동' },
+        { time: '08:00', type: 'move', title: '상하이 푸둥 국제공항으로 이동', desc: '전용차량 이동' },
         { time: '09:00', type: 'airport', title: '공항 도착 후 출국 수속 및 면세점 관람', desc: '출국 심사, 탑승 게이트 이동' },
-        { time: '11:35', type: 'flight', title: '상해 푸둥공항 출발 / 인천 향발', desc: '비행 소요시간 약 1시간 55분' },
+        { time: '11:35', type: 'flight', title: '상하이 푸둥공항 출발 / 인천 향발', desc: '비행 소요시간 약 1시간 55분' },
         { time: '14:30', type: 'arrive', title: '인천 국제공항 도착 후 입국 수속', desc: '수하물 수령 후 전용차량 탑승' },
         { time: '16:00', type: 'move', title: '담양으로 이동 (전용 리무진)', desc: '휴게소 경유' },
         { time: '19:30', type: 'finish', title: '담양 도착, 해단식 및 귀가', desc: '석식(국내식) 후 학부모님 인계, 탐방 종료' },
@@ -155,7 +155,7 @@ export const ScheduleView: React.FC<{ onNavigateToPlace?: (id: string) => void }
   const curriculumMatrix = [
     { subject: '국어', pre: 'AI 도구 활용 상하이 방문지 웹자료 제작', field: '여행지 소개 발표 자료 수집(미션 수행)', post: '다양한 매체 자료로 여행지 발표 제작' },
     { subject: '도덕', pre: '문화를 바라보는 다양한 관점 탐구', field: '문화 상대주의적 태도로 중국 문화 체험', post: '보편 규범에 근거한 타문화·자문화 성찰' },
-    { subject: '역사', pre: '상해 독립운동의 발자취 사전 조사', field: '임시정부청사, 뤼순/루쉰공원 답사', post: '독립운동의 숭고함과 애국심 소감문' },
+    { subject: '역사', pre: '상하이 독립운동의 발자취 사전 조사', field: '임시정부청사, 뤼순/루쉰공원 답사', post: '독립운동의 숭고함과 애국심 소감문' },
     { subject: '사회', pre: '상하이 경제·문화·역사적 세계 도시 특성', field: '세계적 매력 도시의 인프라·도시 구조 관찰', post: '세계 도시의 매력 요소(규모, 다양성, 역사) 정리' },
     { subject: '수학', pre: '황금비의 뜻과 생활 속 황금비 발견', field: '랜드마크 기하학적 구조 및 건축물 속 황금비', post: '황금 사각형을 이용한 나만의 명함 제작' },
     { subject: '과학', pre: '상하이 계절별 일기도 해석 및 날씨 예측', field: '탐방 기간 일자별 기온·습도·날씨 기록', post: '수질 환경과 중국 수권 특성 조사 보고서' },
