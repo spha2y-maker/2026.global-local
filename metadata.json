@@ -1,0 +1,6 @@
+{
+  "name": "담양여자중학교 2026. 글로컬 죽향 역사문화탐방 워크북",
+  "description": "담양여자중학교 학생들을 위한 2026. 글로컬 죽향 역사문화탐방 상하이 통합 워크북: 8대 방문지 교과연계 탐구, 사진 인증 스탬프 투어, 입국심사 및 중국어 회화 음성지원, 기후 조사, <맞바꾼 회중시계> 독서활동 및 관리자 실시간 제출 알림",
+  "requestFramePermissions": ["camera"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
