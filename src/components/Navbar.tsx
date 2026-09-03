@@ -137,7 +137,7 @@ export const Navbar: React.FC<NavbarProps> = ({
 
         {/* Horizontal Navigation Tabs with Bright Light Styling */}
         <nav className="flex space-x-1.5 overflow-x-auto py-2.5 scrollbar-none border-t border-slate-200/80 -mx-4 px-4 sm:mx-0 sm:px-0">
-          {navItems.map((item) => {
+          {navItems.filter(item => item.id !== 'admin' || (currentUser && currentUser.role === 'admin')).map((item) => {
             const isActive = activeTab === item.id;
             return (
               <button

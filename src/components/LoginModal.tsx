@@ -235,12 +235,9 @@ export const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onClose, onLogin
                   required
                   value={adminPassword}
                   onChange={(e) => setAdminPassword(e.target.value)}
-                  placeholder="인증 암호 입력 (damyang2026)"
+                  placeholder="인증 암호 입력"
                   className="w-full bg-slate-50 border border-slate-300 rounded-2xl px-4 py-2.5 text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:border-emerald-500 focus:bg-white transition"
                 />
-                <span className="text-[11px] text-slate-500 mt-1 block">
-                  * 기본 테스트 암호: <code className="text-emerald-700 font-mono font-bold">damyang2026</code>
-                </span>
               </div>
 
               <button

@@ -195,6 +195,18 @@ export const HomeView: React.FC<HomeViewProps> = ({
     }
   ];
 
+  if (currentUser?.role === 'admin') {
+    navHub.push({
+      id: 'admin',
+      title: '교원 전용 관리자 관제 센터',
+      desc: '담양여자중학교 학생들의 워크북 작성 현황 및 8대 스탬프 제출 현황 확인',
+      icon: ShieldCheck,
+      emoji: '👨‍🏫',
+      badge: '교사 관리실',
+      badgeColor: 'bg-rose-100 text-rose-800'
+    });
+  }
+
   return (
     <div className="space-y-8 animate-in fade-in duration-300">
       
