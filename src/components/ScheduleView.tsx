@@ -13,6 +13,8 @@ import {
   Sparkles
 } from 'lucide-react';
 
+import { ShanghaiRouteMap } from './ShanghaiRouteMap';
+
 export const ScheduleView: React.FC<{ onNavigateToPlace?: (id: string) => void }> = ({ onNavigateToPlace }) => {
   const [activeDay, setActiveDay] = useState<number>(1);
   const [showCurriculumMatrix, setShowCurriculumMatrix] = useState(false);
@@ -226,10 +228,24 @@ export const ScheduleView: React.FC<{ onNavigateToPlace?: (id: string) => void }
 
       {/* Main Content Area */}
       {!showCurriculumMatrix ? (
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          
-          {/* Timeline Column (Left 2 cols) */}
-          <div className="lg:col-span-2 space-y-4">
+        <div className="space-y-6">
+          {/* Visual Route Map */}
+          <div className="bg-white border border-slate-200 rounded-3xl p-6 shadow-xs">
+            <div className="flex items-center justify-between pb-4 border-b border-slate-100 mb-6">
+              <div>
+                <span className="text-xs font-mono text-emerald-700 font-bold">ROUTE MAP</span>
+                <h3 className="text-xl font-bold text-slate-900 mt-0.5">상하이 8대 탐방지 경로 지도</h3>
+                <p className="text-xs text-slate-500 mt-1">지도의 핀을 클릭하면 해당 장소의 교과연계 탐구 워크북으로 바로 이동합니다.</p>
+              </div>
+              <MapPin className="w-6 h-6 text-emerald-600 opacity-80" />
+            </div>
+            <ShanghaiRouteMap onNavigateToPlace={onNavigateToPlace} />
+          </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            
+            {/* Timeline Column (Left 2 cols) */}
+            <div className="lg:col-span-2 space-y-4">
             <div className="bg-white border border-slate-200 rounded-3xl p-6 shadow-xs">
               <div className="flex items-center justify-between pb-4 border-b border-slate-100 mb-6">
                 <div>
@@ -344,6 +360,7 @@ export const ScheduleView: React.FC<{ onNavigateToPlace?: (id: string) => void }
 
           </div>
 
+        </div>
         </div>
       ) : (
         /* 12 Subjects Curriculum Cross-Matrix View */
