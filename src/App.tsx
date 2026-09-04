@@ -27,7 +27,8 @@ import {
 import { 
   saveStudentSubmission, 
   loadStudentSubmission, 
-  subscribeAllSubmissions 
+  subscribeAllSubmissions,
+  logoutAuthUser
 } from './services/submissionService';
 
 export default function App() {
@@ -49,6 +50,7 @@ export default function App() {
   const [activeTab, setActiveTab] = useState<string>('home');
   const [loginModalOpen, setLoginModalOpen] = useState<boolean>(false);
   const [selectedPlaceId, setSelectedPlaceId] = useState<string>(PLACES_DATA[0].id);
+  const [cloudSyncStatus, setCloudSyncStatus] = useState<'saving' | 'saved' | 'idle' | 'error'>('saved');
 
   // Workbook entries per place
   const [workbookEntries, setWorkbookEntries] = useState<Record<string, WorkbookEntry>>(() => {
@@ -161,6 +163,7 @@ export default function App() {
     book: BookActivity,
     completed: boolean
   ) => {
+    setCloudSyncStatus('saving');
     const totalStamps = (Object.values(entries) as WorkbookEntry[]).filter(e => e.stampAcquired).length;
     const submission: StudentSubmission = {
       studentId: user.studentId,
@@ -173,7 +176,12 @@ export default function App() {
       totalStamps,
       updatedAt: new Date().toISOString()
     };
-    await saveStudentSubmission(submission);
+    const success = await saveStudentSubmission(submission);
+    if (success) {
+      setCloudSyncStatus('saved');
+    } else {
+      setCloudSyncStatus('error');
+    }
   };
 
   // Handle final submission of 8 stamps
@@ -183,6 +191,7 @@ export default function App() {
       return;
     }
     setIsSubmitting(true);
+    setCloudSyncStatus('saving');
     try {
       const totalStamps = (Object.values(workbookEntries) as WorkbookEntry[]).filter(e => e.stampAcquired).length;
       const submission: StudentSubmission = {
@@ -199,22 +208,65 @@ export default function App() {
       };
       await saveStudentSubmission(submission);
       setIsSubmitted(true);
+      setCloudSyncStatus('saved');
     } catch (err) {
       console.error(err);
+      setCloudSyncStatus('error');
     } finally {
       setIsSubmitting(false);
     }
   };
 
-  const handleLoginSuccess = (user: StudentUser) => {
+  const handleLoginSuccess = async (user: StudentUser) => {
     setCurrentUser(user);
     localStorage.setItem('damyang_user', JSON.stringify(user));
     if (user.role === 'admin') {
       setActiveTab('admin');
+    } else {
+      // Fetch this student's data from Cloud Firestore so device changes restore everything
+      setCloudSyncStatus('saving');
+      const sub = await loadStudentSubmission(user.studentId);
+      if (sub) {
+        if (sub.workbookEntries) {
+          setWorkbookEntries(sub.workbookEntries);
+        }
+        if (sub.weatherRecords && sub.weatherRecords.length) {
+          setWeatherRecords(sub.weatherRecords);
+        }
+        if (sub.bookActivity) {
+          setBookActivity(sub.bookActivity);
+        }
+        if (sub.isCompleted) {
+          setIsSubmitted(true);
+        }
+      } else {
+        // If first-time user with no previous data, initialize clean entries
+        const fresh: Record<string, WorkbookEntry> = {};
+        PLACES_DATA.forEach((p) => {
+          fresh[p.id] = {
+            placeId: p.id,
+            reflectionText: '',
+            curriculumResponses: {},
+            stampAcquired: false
+          };
+        });
+        setWorkbookEntries(fresh);
+        setWeatherRecords(INITIAL_WEATHER_RECORDS);
+        setBookActivity({
+          readingSummary: '',
+          clockExchangeMeaning: '',
+          ifIWereHero: '',
+          symbolismReflection: '',
+          myPromiseToFuture: ''
+        });
+        setIsSubmitted(false);
+      }
+      setCloudSyncStatus('saved');
     }
   };
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
+    await logoutAuthUser();
     localStorage.removeItem('damyang_user');
     setCurrentUser(null);
     setLoginModalOpen(true);
@@ -235,6 +287,7 @@ export default function App() {
         onLogout={handleLogout}
         onOpenLogin={() => setLoginModalOpen(true)}
         adminNewSubmissionsCount={currentUser?.role === 'admin' ? adminUnreadCount : undefined}
+        cloudSyncStatus={cloudSyncStatus}
       />
 
       {/* Main Responsive Viewport */}

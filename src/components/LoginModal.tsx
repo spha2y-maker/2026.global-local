@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
-import { UserCircle, Lock, School, ShieldAlert, CheckCircle2, Sparkles, X } from 'lucide-react';
+import { UserCircle, Lock, School, ShieldAlert, CheckCircle2, Sparkles, X, Loader2, CloudCheck } from 'lucide-react';
 import { StudentUser } from '../types';
+import { loginStudentWithAuth, loginAdminWithAuth } from '../services/submissionService';
 
 interface LoginModalProps {
   isOpen: boolean;
@@ -20,54 +21,57 @@ export const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onClose, onLogin
   const [password, setPassword] = useState('1234');
   const [adminPassword, setAdminPassword] = useState('');
   const [errorMsg, setErrorMsg] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
 
   if (!isOpen) return null;
 
-  const handleStudentLogin = (e: React.FormEvent) => {
+  const handleStudentLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!studentId.trim() || !name.trim() || !password.trim()) {
       setErrorMsg('학번, 이름, 비밀번호를 모두 입력해 주세요.');
       return;
     }
 
-    const user: StudentUser = {
-      studentId: studentId.trim(),
-      name: name.trim(),
-      school,
-      password: password.trim(),
-      role: 'student'
-    };
-
-    onLoginSuccess(user);
-    onClose();
-  };
-
-  const handleAdminLogin = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (adminPassword === 'damyang2026' || adminPassword === 'admin') {
-      const adminUser: StudentUser = {
-        studentId: 'TEACHER',
-        name: '인솔교사/관리자',
-        school: '담양여자중학교 인솔추진단',
-        role: 'admin'
-      };
-      onLoginSuccess(adminUser);
+    setIsLoading(true);
+    setErrorMsg('');
+    try {
+      const user = await loginStudentWithAuth(studentId, name, school, password);
+      onLoginSuccess(user);
       onClose();
-    } else {
-      setErrorMsg('관리자 비밀번호가 올바르지 않습니다. (기본: damyang2026)');
+    } catch (err: any) {
+      setErrorMsg(err.message || '로그인 처리 중 오류가 발생했습니다.');
+    } finally {
+      setIsLoading(false);
     }
   };
 
-  const handleQuickDemoStudent = () => {
-    const user: StudentUser = {
-      studentId: '30215',
-      name: '이수민',
-      school: '담양여자중학교',
-      password: 'demo',
-      role: 'student'
-    };
-    onLoginSuccess(user);
-    onClose();
+  const handleAdminLogin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsLoading(true);
+    setErrorMsg('');
+    try {
+      const adminUser = await loginAdminWithAuth(adminPassword.trim());
+      onLoginSuccess(adminUser);
+      onClose();
+    } catch (err: any) {
+      setErrorMsg(err.message || '관리자 비밀번호가 올바르지 않습니다.');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleQuickDemoStudent = async () => {
+    setIsLoading(true);
+    setErrorMsg('');
+    try {
+      const user = await loginStudentWithAuth('30215', '이수민', '담양여자중학교', '1234');
+      onLoginSuccess(user);
+      onClose();
+    } catch (err: any) {
+      setErrorMsg(err.message || '체험 계정 접속 실패');
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   return (
@@ -77,7 +81,8 @@ export const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onClose, onLogin
         {/* Close Button */}
         <button
           onClick={onClose}
-          className="absolute top-5 right-5 p-2 rounded-xl text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition"
+          disabled={isLoading}
+          className="absolute top-5 right-5 p-2 rounded-xl text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition disabled:opacity-50"
         >
           <X className="w-5 h-5" />
         </button>
@@ -87,20 +92,22 @@ export const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onClose, onLogin
           <div className="w-14 h-14 bg-emerald-50 border border-emerald-200 text-emerald-700 rounded-2xl flex items-center justify-center text-2xl shadow-xs mb-3">
             🎋
           </div>
-          <span className="text-[11px] uppercase tracking-wider text-emerald-700 font-bold bg-emerald-100/80 px-2.5 py-0.5 rounded-full border border-emerald-200">
-            담양여자중학교 워크북
+          <span className="text-[11px] uppercase tracking-wider text-emerald-700 font-bold bg-emerald-100/80 px-2.5 py-0.5 rounded-full border border-emerald-200 flex items-center gap-1">
+            <CloudCheck className="w-3 h-3 text-emerald-600" />
+            <span>Firebase 클라우드 연동</span>
           </span>
           <h2 className="text-xl sm:text-2xl font-bold text-slate-900 tracking-tight mt-2">
             2026. 글로컬 죽향 역사문화탐방
           </h2>
           <p className="text-xs text-slate-500 mt-1 max-w-xs">
-            학번과 비밀번호를 통해 나만의 탐방 기록 및 스탬프를 안전하게 동기화합니다.
+            기기가 바뀌어도 내 학번으로 로그인하면 작성한 워크북 데이터가 서버에서 그대로 복원됩니다.
           </p>
 
           {/* Role Switcher Tabs */}
           <div className="grid grid-cols-2 gap-1.5 w-full mt-5 p-1 bg-slate-100 rounded-2xl border border-slate-200">
             <button
               type="button"
+              disabled={isLoading}
               onClick={() => { setActiveTab('student'); setErrorMsg(''); }}
               className={`py-2 text-xs font-semibold rounded-xl transition-all ${
                 activeTab === 'student'
@@ -112,6 +119,7 @@ export const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onClose, onLogin
             </button>
             <button
               type="button"
+              disabled={isLoading}
               onClick={() => { setActiveTab('admin'); setErrorMsg(''); }}
               className={`py-2 text-xs font-semibold rounded-xl transition-all ${
                 activeTab === 'admin'
@@ -142,6 +150,7 @@ export const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onClose, onLogin
                 </label>
                 <select
                   value={school}
+                  disabled={isLoading}
                   onChange={(e) => setSchool(e.target.value)}
                   className="w-full bg-slate-50 border border-slate-300 rounded-2xl px-4 py-2.5 text-sm text-slate-800 focus:outline-none focus:border-emerald-500 focus:bg-white transition"
                 >
@@ -162,6 +171,7 @@ export const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onClose, onLogin
                   <input
                     type="text"
                     required
+                    disabled={isLoading}
                     value={studentId}
                     onChange={(e) => setStudentId(e.target.value)}
                     placeholder="30215"
@@ -175,6 +185,7 @@ export const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onClose, onLogin
                   <input
                     type="text"
                     required
+                    disabled={isLoading}
                     value={name}
                     onChange={(e) => setName(e.target.value)}
                     placeholder="이수민"
@@ -191,29 +202,41 @@ export const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onClose, onLogin
                 <input
                   type="password"
                   required
+                  disabled={isLoading}
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   placeholder="••••"
                   className="w-full bg-slate-50 border border-slate-300 rounded-2xl px-4 py-2.5 text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:border-emerald-500 focus:bg-white transition"
                 />
                 <span className="text-[10px] text-slate-500 mt-1 block">
-                  * 첫 로그인 시 입력한 비밀번호가 내 워크북 비밀번호로 저장됩니다.
+                  * 다른 기기(태블릿, 스마트폰)에서도 동일한 학번/비밀번호로 로그인 시 자동 동기화됩니다.
                 </span>
               </div>
 
               <button
                 type="submit"
-                className="w-full mt-2 py-3 rounded-2xl bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-sm shadow-md shadow-emerald-600/20 transition transform active:scale-95 flex items-center justify-center gap-2"
+                disabled={isLoading}
+                className="w-full mt-2 py-3 rounded-2xl bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-sm shadow-md shadow-emerald-600/20 transition transform active:scale-95 flex items-center justify-center gap-2 disabled:opacity-60"
               >
-                <CheckCircle2 className="w-4 h-4" />
-                <span>워크북 시작하기</span>
+                {isLoading ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    <span>서버 동기화 연결 중...</span>
+                  </>
+                ) : (
+                  <>
+                    <CheckCircle2 className="w-4 h-4" />
+                    <span>워크북 시작하기</span>
+                  </>
+                )}
               </button>
 
               <div className="pt-3 border-t border-slate-200 text-center">
                 <button
                   type="button"
+                  disabled={isLoading}
                   onClick={handleQuickDemoStudent}
-                  className="text-xs text-slate-500 hover:text-emerald-700 transition font-medium"
+                  className="text-xs text-slate-500 hover:text-emerald-700 transition font-medium disabled:opacity-50"
                 >
                   ⚡ 체험용 학생 계정(담양여중 이수민)으로 1초 로그인
                 </button>
@@ -233,6 +256,7 @@ export const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onClose, onLogin
                 <input
                   type="password"
                   required
+                  disabled={isLoading}
                   value={adminPassword}
                   onChange={(e) => setAdminPassword(e.target.value)}
                   placeholder="인증 암호 입력"
@@ -242,10 +266,20 @@ export const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onClose, onLogin
 
               <button
                 type="submit"
-                className="w-full py-3 rounded-2xl bg-slate-800 hover:bg-slate-900 text-white font-semibold text-sm shadow-sm transition transform active:scale-95 flex items-center justify-center gap-2"
+                disabled={isLoading}
+                className="w-full py-3 rounded-2xl bg-slate-800 hover:bg-slate-900 text-white font-semibold text-sm shadow-sm transition transform active:scale-95 flex items-center justify-center gap-2 disabled:opacity-60"
               >
-                <CheckCircle2 className="w-4 h-4" />
-                <span>교사 관리자 접속</span>
+                {isLoading ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    <span>관리자 인증 확인 중...</span>
+                  </>
+                ) : (
+                  <>
+                    <CheckCircle2 className="w-4 h-4" />
+                    <span>교사 관리자 접속</span>
+                  </>
+                )}
               </button>
             </form>
           )}
@@ -254,3 +288,4 @@ export const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onClose, onLogin
     </div>
   );
 };
+

@@ -13,7 +13,9 @@ import {
   ShieldCheck, 
   LogOut, 
   UserCircle2,
-  Sparkles
+  Sparkles,
+  CloudCheck,
+  RefreshCw
 } from 'lucide-react';
 import { StudentUser } from '../types';
 
@@ -26,6 +28,7 @@ interface NavbarProps {
   onLogout: () => void;
   onOpenLogin: () => void;
   adminNewSubmissionsCount?: number;
+  cloudSyncStatus?: 'saving' | 'saved' | 'idle' | 'error';
 }
 
 export const Navbar: React.FC<NavbarProps> = ({
@@ -36,7 +39,8 @@ export const Navbar: React.FC<NavbarProps> = ({
   totalStamps,
   onLogout,
   onOpenLogin,
-  adminNewSubmissionsCount = 0
+  adminNewSubmissionsCount = 0,
+  cloudSyncStatus = 'saved'
 }) => {
   const navItems = [
     { id: 'home', label: '홈', icon: Home, emoji: '🏠' },
@@ -97,6 +101,22 @@ export const Navbar: React.FC<NavbarProps> = ({
             <span className="text-emerald-700 font-mono font-semibold flex items-center gap-1">
               <span>스탬프 {stampsCount}/{totalStamps}</span>
             </span>
+            {currentUser && currentUser.role === 'student' && (
+              <>
+                <span className="text-slate-300">|</span>
+                {cloudSyncStatus === 'saving' ? (
+                  <span className="flex items-center gap-1 text-[11px] font-medium text-amber-700 animate-pulse">
+                    <RefreshCw className="w-3 h-3 animate-spin text-amber-600" />
+                    <span>서버 저장 중...</span>
+                  </span>
+                ) : (
+                  <span className="flex items-center gap-1 text-[11px] font-medium text-emerald-700">
+                    <CloudCheck className="w-3.5 h-3.5 text-emerald-600" />
+                    <span>클라우드 동기화됨</span>
+                  </span>
+                )}
+              </>
+            )}
           </div>
 
           {/* User Status / Auth Action */}

@@ -10,10 +10,12 @@ import {
   Sparkles,
   ExternalLink,
   History,
-  PenTool
+  PenTool,
+  TableProperties
 } from 'lucide-react';
 import { PlaceInfo, WorkbookEntry } from '../types';
 import { PLACES_DATA } from '../data/travelData';
+import { CurriculumTableView } from './CurriculumTableView';
 
 interface PlacesWorkbookViewProps {
   entries: Record<string, WorkbookEntry>;
@@ -28,6 +30,7 @@ export const PlacesWorkbookView: React.FC<PlacesWorkbookViewProps> = ({
   onNavigateToStamp,
   selectedPlaceId
 }) => {
+  const [subTab, setSubTab] = useState<'places' | 'curriculum_table'>('places');
   const [activePlaceId, setActivePlaceId] = useState<string>(selectedPlaceId || PLACES_DATA[0].id);
 
   const activePlace = PLACES_DATA.find((p) => p.id === activePlaceId) || PLACES_DATA[0];
@@ -52,18 +55,71 @@ export const PlacesWorkbookView: React.FC<PlacesWorkbookViewProps> = ({
 
   return (
     <div className="space-y-6 animate-in fade-in duration-300 text-slate-800">
-      
-      {/* 8 Places Horizontal Quick Carousel / Selector */}
-      <div className="bg-white border border-slate-200 rounded-3xl p-4 sm:p-6 shadow-xs">
-        <div className="flex items-center justify-between mb-4">
-          <div className="flex items-center gap-2">
-            <span className="text-xl">🗺️</span>
-            <h3 className="text-sm sm:text-base font-bold text-slate-900 tracking-tight">8대 탐방지 선택</h3>
-          </div>
-          <span className="text-xs text-emerald-800 font-mono font-bold bg-emerald-100 px-3 py-1 rounded-full border border-emerald-200">
-            {PLACES_DATA.filter(p => entries[p.id]?.stampAcquired).length} / 8 완료
-          </span>
+
+      {/* Top View Mode Switcher: 8 Places vs. 12-Subject Curriculum Alignment Table */}
+      <div className="bg-white border border-slate-200 rounded-3xl p-2.5 shadow-xs flex flex-col sm:flex-row items-center justify-between gap-3">
+        <div className="grid grid-cols-2 gap-2 w-full sm:w-auto">
+          <button
+            onClick={() => setSubTab('places')}
+            className={`px-4 py-2.5 rounded-2xl text-xs sm:text-sm font-bold flex items-center justify-center gap-2 transition ${
+              subTab === 'places'
+                ? 'bg-emerald-600 text-white shadow-sm'
+                : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+            }`}
+          >
+            <span>🗺️ 8대 탐방지별 워크북</span>
+          </button>
+          <button
+            onClick={() => setSubTab('curriculum_table')}
+            className={`px-4 py-2.5 rounded-2xl text-xs sm:text-sm font-bold flex items-center justify-center gap-2 transition ${
+              subTab === 'curriculum_table'
+                ? 'bg-emerald-600 text-white shadow-sm'
+                : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+            }`}
+          >
+            <TableProperties className="w-4 h-4" />
+            <span>📋 12개 교과 연계표</span>
+            <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-amber-400 text-slate-900 font-bold hidden md:inline">
+              수학·체육·진로
+            </span>
+          </button>
         </div>
+
+        <div className="text-xs text-slate-500 hidden sm:flex items-center gap-2 px-3">
+          <Sparkles className="w-3.5 h-3.5 text-emerald-600" />
+          <span>담양여중 글로컬 특색 교육과정(사전-현지-사후)</span>
+        </div>
+      </div>
+
+      {subTab === 'curriculum_table' ? (
+        <CurriculumTableView 
+          onSelectPlace={(placeId) => {
+            setActivePlaceId(placeId);
+            setSubTab('places');
+          }} 
+        />
+      ) : (
+        <>
+          {/* 8 Places Horizontal Quick Carousel / Selector */}
+          <div className="bg-white border border-slate-200 rounded-3xl p-4 sm:p-6 shadow-xs">
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-2">
+                <span className="text-xl">🗺️</span>
+                <h3 className="text-sm sm:text-base font-bold text-slate-900 tracking-tight">8대 탐방지 선택</h3>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setSubTab('curriculum_table')}
+                  className="text-xs font-bold text-emerald-700 hover:text-emerald-800 bg-emerald-50 hover:bg-emerald-100 px-3 py-1 rounded-full border border-emerald-200 flex items-center gap-1 transition"
+                >
+                  <TableProperties className="w-3 h-3" />
+                  <span>교과연계표 보기</span>
+                </button>
+                <span className="text-xs text-emerald-800 font-mono font-bold bg-emerald-100 px-3 py-1 rounded-full border border-emerald-200">
+                  {PLACES_DATA.filter(p => entries[p.id]?.stampAcquired).length} / 8 완료
+                </span>
+              </div>
+            </div>
 
         <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-2">
           {PLACES_DATA.map((place, idx) => {
@@ -278,6 +334,8 @@ export const PlacesWorkbookView: React.FC<PlacesWorkbookViewProps> = ({
         </div>
 
       </div>
+      </>
+      )}
 
     </div>
   );

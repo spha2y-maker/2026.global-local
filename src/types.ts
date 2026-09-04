@@ -13,6 +13,17 @@ export interface CurriculumLink {
   guideQuestion: string;
 }
 
+export interface CurriculumTableItem {
+  id: string;
+  subject: string;
+  category: '인문사회' | '수학과학' | '예체능' | '외국사진로';
+  preTrip: string;
+  duringTrip: string;
+  postTrip: string;
+  relatedPlaces?: string;
+  highlight?: string;
+}
+
 export interface HistoricalEvent {
   title: string;
   desc: string;
