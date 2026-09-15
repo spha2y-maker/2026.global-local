@@ -4,6 +4,8 @@ export interface StudentUser {
   password?: string;
   school: string;
   role: 'student' | 'admin';
+  createdAt?: string;
+  lastLoginAt?: any;
 }
 
 export interface CurriculumLink {
@@ -75,6 +77,15 @@ export interface BookActivity {
   myPromiseToFuture: string;
 }
 
+export interface DailyReflection {
+  day: number;
+  date: string;
+  memorableScene: string;
+  biggestEmotion: string;
+  newlyLearned: string;
+  updatedAt?: string;
+}
+
 export interface StudentSubmission {
   id?: string;
   studentId: string;
@@ -87,6 +98,7 @@ export interface StudentSubmission {
   workbookEntries: Record<string, WorkbookEntry>;
   weatherRecords: WeatherRecord[];
   bookActivity: BookActivity;
+  dailyReflections?: DailyReflection[];
 }
 
 export interface PhraseItem {

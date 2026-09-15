@@ -15,7 +15,8 @@ import {
   UserCircle2,
   Sparkles,
   CloudCheck,
-  RefreshCw
+  RefreshCw,
+  BookHeart
 } from 'lucide-react';
 import { StudentUser } from '../types';
 
@@ -46,12 +47,13 @@ export const Navbar: React.FC<NavbarProps> = ({
     { id: 'home', label: '홈', icon: Home, emoji: '🏠' },
     { id: 'schedule', label: '탐방 일정', icon: Calendar, emoji: '📅' },
     { id: 'places', label: '8대 방문지 워크북', icon: MapPin, emoji: '🗺️' },
+    { id: 'reflection', label: '오늘의 성찰일지', icon: BookHeart, emoji: '📝' },
     { id: 'stamps', label: '사진인증 스탬프', icon: Award, emoji: '💮', badge: `${stampsCount}/${totalStamps}` },
+    { id: 'weather', label: '기후 조사', icon: CloudSun, emoji: '⛅' },
+    { id: 'book', label: '<맞바꾼 회중시계>', icon: BookOpen, emoji: '📖' },
     { id: 'toolkit', label: '여행 툴킷', icon: Luggage, emoji: '🧳' },
     { id: 'immigration', label: '입국심사 영어', icon: Plane, emoji: '✈️' },
     { id: 'chinese', label: '필수 중국어', icon: Languages, emoji: '🇨🇳' },
-    { id: 'weather', label: '기후 조사', icon: CloudSun, emoji: '⛅' },
-    { id: 'book', label: '<맞바꾼 회중시계>', icon: BookOpen, emoji: '📖' },
     { id: 'export', label: 'PPT/PDF 출력', icon: FileDown, emoji: '📑' },
     { 
       id: 'admin', 

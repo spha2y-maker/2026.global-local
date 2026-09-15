@@ -4,6 +4,7 @@ import {
   setDoc, 
   getDoc, 
   getDocs, 
+  deleteDoc,
   onSnapshot, 
   query, 
   serverTimestamp 
@@ -40,7 +41,26 @@ export async function loginStudentWithAuth(
   school: string, 
   rawPassword: string
 ): Promise<StudentUser> {
-  const { email, password } = formatStudentAuthCredentials(studentId, rawPassword);
+  const cleanId = studentId.trim();
+  const trimmedPassword = rawPassword.trim();
+  const userDocRef = doc(db, USERS_COLLECTION, cleanId);
+
+  // 0. Verify if password was set or reset in Firestore
+  try {
+    const existingSnap = await getDoc(userDocRef);
+    if (existingSnap.exists()) {
+      const data = existingSnap.data();
+      if (data.password && data.password !== trimmedPassword) {
+        throw new Error('비밀번호가 일치하지 않습니다. 관리자 선생님께 비밀번호 초기화를 요청하거나 확인해 주세요.');
+      }
+    }
+  } catch (err: any) {
+    if (err.message && err.message.includes('비밀번호가 일치하지 않습니다')) {
+      throw err;
+    }
+  }
+
+  const { email, password } = formatStudentAuthCredentials(cleanId, trimmedPassword);
 
   let fbUser: FirebaseUser | null = null;
 
@@ -62,33 +82,30 @@ export async function loginStudentWithAuth(
         fbUser = createCred.user;
         await updateProfile(fbUser, { displayName: name.trim() });
       } catch (createErr: any) {
-        if (createErr.code === 'auth/email-already-in-use') {
-          throw new Error('비밀번호가 일치하지 않습니다. 이전에 설정하신 비밀번호를 입력해 주세요.');
-        }
-        throw createErr;
+        // Fallback gracefully for preview
+        console.warn('Firebase Auth user creation note:', createErr);
       }
     } else if (errorCode === 'auth/wrong-password') {
-      throw new Error('비밀번호가 일치하지 않습니다. 이전에 설정하신 비밀번호를 확인해 주세요.');
-    } else {
-      console.warn('Firebase Auth sign in issue, proceeding with fallback:', err);
+      // Firebase auth had an old password; if Firestore allowed it (e.g. after teacher reset), we proceed
+      console.warn('Firebase Auth password mismatch, falling back to verified Firestore session.');
     }
   }
 
   const studentUser: StudentUser = {
-    studentId: studentId.trim(),
+    studentId: cleanId,
     name: name.trim(),
     school: school.trim(),
-    password: rawPassword.trim(),
+    password: trimmedPassword,
     role: 'student'
   };
 
-  // 2. Persist/Update user profile document in Firestore
+  // 2. Persist/Update user profile document in Firestore with password
   try {
-    const userDocRef = doc(db, USERS_COLLECTION, studentUser.studentId);
     await setDoc(userDocRef, {
       studentId: studentUser.studentId,
       name: studentUser.name,
       school: studentUser.school,
+      password: trimmedPassword,
       role: 'student',
       authUid: fbUser?.uid || null,
       lastLoginAt: serverTimestamp(),
@@ -237,6 +254,145 @@ export function subscribeAllSubmissions(callback: (submissions: StudentSubmissio
   } catch (err) {
     console.error('Subscribe error:', err);
     return () => {};
+  }
+}
+
+/**
+ * Real-time listener for all student accounts in users collection (for Admin Roster & Password Management)
+ */
+export function subscribeAllStudents(callback: (students: StudentUser[]) => void) {
+  try {
+    const q = query(collection(db, USERS_COLLECTION));
+    return onSnapshot(q, (snapshot) => {
+      const list: StudentUser[] = [];
+      snapshot.forEach((d) => {
+        const data = d.data();
+        if (data.role !== 'admin' && d.id !== 'TEACHER') {
+          list.push({
+            studentId: data.studentId || d.id,
+            name: data.name || '학생',
+            school: data.school || '담양여자중학교',
+            password: data.password || '1234',
+            role: 'student',
+            lastLoginAt: data.lastLoginAt,
+            createdAt: data.createdAt || data.updatedAt
+          });
+        }
+      });
+      // Sort by studentId asc
+      list.sort((a, b) => a.studentId.localeCompare(b.studentId));
+      callback(list);
+    }, (err) => {
+      console.error('Students snapshot error:', err);
+    });
+  } catch (err) {
+    console.error('Students subscribe error:', err);
+    return () => {};
+  }
+}
+
+/**
+ * Add or update student user in Firestore
+ */
+export async function saveOrUpdateStudent(student: {
+  studentId: string;
+  name: string;
+  school: string;
+  password?: string;
+}): Promise<boolean> {
+  try {
+    const cleanId = student.studentId.trim();
+    const docRef = doc(db, USERS_COLLECTION, cleanId);
+    await setDoc(docRef, {
+      studentId: cleanId,
+      name: student.name.trim(),
+      school: student.school.trim(),
+      password: student.password?.trim() || '1234',
+      role: 'student',
+      updatedAt: new Date().toISOString()
+    }, { merge: true });
+    return true;
+  } catch (error) {
+    console.error('Error saving student to Firestore:', error);
+    return false;
+  }
+}
+
+/**
+ * Reset student password in Firestore
+ */
+export async function resetStudentPassword(studentId: string, newPassword: string): Promise<boolean> {
+  try {
+    const cleanId = studentId.trim();
+    const docRef = doc(db, USERS_COLLECTION, cleanId);
+    await setDoc(docRef, {
+      password: newPassword.trim(),
+      updatedAt: new Date().toISOString()
+    }, { merge: true });
+    return true;
+  } catch (error) {
+    console.error('Error resetting student password:', error);
+    return false;
+  }
+}
+
+/**
+ * Delete student account from Firestore and purge associated submissions
+ */
+export async function deleteStudentUser(studentId: string): Promise<boolean> {
+  try {
+    const cleanId = studentId.trim();
+    
+    // 1. Delete user profile doc from USERS_COLLECTION
+    try {
+      await deleteDoc(doc(db, USERS_COLLECTION, cleanId));
+    } catch (uErr) {
+      console.warn('Error deleting from USERS_COLLECTION:', uErr);
+    }
+
+    // 2. Delete submission doc from SUBMISSION_COLLECTION
+    try {
+      await deleteDoc(doc(db, SUBMISSION_COLLECTION, cleanId));
+    } catch (sErr) {
+      console.warn('Error deleting from SUBMISSION_COLLECTION:', sErr);
+    }
+
+    // 3. Clean up query matches in case studentId was stored under different ID
+    try {
+      const snap = await getDocs(query(collection(db, SUBMISSION_COLLECTION)));
+      for (const d of snap.docs) {
+        if (d.data().studentId === cleanId) {
+          await deleteDoc(d.ref);
+        }
+      }
+    } catch (qErr) {
+      console.warn('Error querying extra submission docs for cleanup:', qErr);
+    }
+
+    // 4. Purge client-side caches
+    try {
+      localStorage.removeItem(`submission_${cleanId}`);
+      const cachedCurrentUser = localStorage.getItem('damyang_student_user');
+      if (cachedCurrentUser) {
+        const parsed = JSON.parse(cachedCurrentUser);
+        if (parsed.studentId === cleanId) {
+          localStorage.removeItem('damyang_student_user');
+        }
+      }
+      const localRoster = localStorage.getItem('damyang_student_roster_cache');
+      if (localRoster) {
+        const parsed = JSON.parse(localRoster);
+        const filtered = parsed.filter((s: any) => s.studentId !== cleanId);
+        localStorage.setItem('damyang_student_roster_cache', JSON.stringify(filtered));
+      }
+    } catch (cErr) {
+      console.warn('Error clearing local caches:', cErr);
+    }
+
+    return true;
+  } catch (error) {
+    console.error('Error deleting student:', error);
+    return false;
   }
 }
 

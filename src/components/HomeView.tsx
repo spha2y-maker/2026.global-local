@@ -24,6 +24,7 @@ import {
 } from 'lucide-react';
 import { StudentUser, WorkbookEntry } from '../types';
 import { PLACES_DATA } from '../data/travelData';
+import { fetchLiveShanghaiWeather, LiveShanghaiWeather } from '../services/weatherService';
 
 interface HomeViewProps {
   currentUser: StudentUser | null;
@@ -38,6 +39,14 @@ export const HomeView: React.FC<HomeViewProps> = ({
   setActiveTab,
   onOpenLogin
 }) => {
+  const [liveWeather, setLiveWeather] = useState<LiveShanghaiWeather | null>(null);
+
+  useEffect(() => {
+    fetchLiveShanghaiWeather()
+      .then(data => setLiveWeather(data))
+      .catch(err => console.warn('Home live weather fetch err:', err));
+  }, []);
+
   // D-Day Target: 2026-10-13 07:00:00 (KST, UTC+9)
   const [timeLeft, setTimeLeft] = useState<{
     days: number;
@@ -251,6 +260,25 @@ export const HomeView: React.FC<HomeViewProps> = ({
                 <Building2 className="w-3.5 h-3.5 text-emerald-300" />
                 중국 상하이 일원
               </span>
+
+              {/* Real-time Shanghai Weather Pill */}
+              {liveWeather && (
+                <button
+                  onClick={() => setActiveTab('weather')}
+                  className="inline-flex items-center gap-2 bg-emerald-950/80 hover:bg-emerald-900 transition px-3 py-1 rounded-xl border border-emerald-400/50 text-xs text-white group cursor-pointer shadow-xs"
+                  title="상하이 실시간 기후 조사 워크북으로 바로가기"
+                >
+                  <span className="relative flex h-2 w-2">
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                    <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+                  </span>
+                  <span className="text-emerald-200">상하이 실시간:</span>
+                  <span className="text-white font-mono font-bold">{liveWeather.temperature}°C</span>
+                  <span>{liveWeather.weatherEmoji} {liveWeather.weatherText}</span>
+                  <span className="text-emerald-300 text-[11px]">(습도 {liveWeather.humidity}%)</span>
+                  <ArrowRight className="w-3 h-3 text-emerald-300 group-hover:translate-x-0.5 transition" />
+                </button>
+              )}
             </div>
           </div>
 

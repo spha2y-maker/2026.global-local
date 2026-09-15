@@ -24,7 +24,7 @@ export const ScheduleView: React.FC<{ onNavigateToPlace?: (id: string) => void }
       day: 1,
       date: '10.13 (화)',
       title: '제1일차 : 담양 출정 & 상하이 심장부 입성',
-      summary: '담양 집결 ➔ 인천공항 ➔ 상하이 푸둥공항 ➔ 남경로 보행가 ➔ 황포강 유람 & 외탄 야경',
+      summary: '담양 집결 ➔ 인천공항 ➔ 상하이 푸둥공항 ➔ 남경로 보행가 ➔ 마시청 서커스 공연 관람 & 외탄 야경',
       meals: {
         breakfast: '국내식 (출발 도시락)',
         lunch: '기내식 (국제선 항공)',
@@ -47,8 +47,8 @@ export const ScheduleView: React.FC<{ onNavigateToPlace?: (id: string) => void }
         { 
           time: '19:30', 
           type: 'spot', 
-          title: '황포강 유람선 & 외탄(와이탄) 야경 감상', 
-          desc: '근대 서양 건축군과 건너편 푸둥 마천루 감상, 1922 황포탄 의열단 투쟁 현장 고찰',
+          title: '마시청 서커스 공연 관람 & 외탄(와이탄) 야경 감상', 
+          desc: '세계적 명성의 상하이 마시청(ERA) 서커스 아트 공연 관람 및 황푸강변 와이탄 근대 건축군 야경 감상',
           placeId: 'waitan'
         },
         { time: '21:30', type: 'hotel', title: '호텔 투숙 & 일일 워크북 점검 및 휴식', desc: '르네상스 상하이 푸퉈 호텔' },

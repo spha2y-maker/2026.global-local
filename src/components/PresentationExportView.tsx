@@ -14,25 +14,27 @@ import {
   User,
   Calendar
 } from 'lucide-react';
-import { StudentUser, WorkbookEntry, WeatherRecord, BookActivity } from '../types';
+import { StudentUser, WorkbookEntry, WeatherRecord, BookActivity, DailyReflection } from '../types';
 import { PLACES_DATA } from '../data/travelData';
 
 interface PresentationExportViewProps {
   currentUser: StudentUser | null;
   entries: Record<string, WorkbookEntry>;
   weatherRecords: WeatherRecord[];
+  dailyReflections?: DailyReflection[];
   bookActivity: BookActivity;
 }
 
 interface SlideItem {
   title: string;
   subtitle?: string;
-  type: 'cover' | 'overview' | 'place' | 'weather' | 'book';
+  type: 'cover' | 'overview' | 'place' | 'weather' | 'reflection' | 'book';
   stamps?: string;
   items?: string[];
   place?: any;
   entry?: any;
   records?: any;
+  reflections?: any;
   activity?: any;
 }
 
@@ -40,6 +42,7 @@ export const PresentationExportView: React.FC<PresentationExportViewProps> = ({
   currentUser,
   entries,
   weatherRecords,
+  dailyReflections = [],
   bookActivity
 }) => {
   const [viewMode, setViewMode] = useState<'preview' | 'slideshow'>('preview');
@@ -63,7 +66,7 @@ export const PresentationExportView: React.FC<PresentationExportViewProps> = ({
       title: '탐방 개요 및 4일간의 여정 요약',
       type: 'overview',
       items: [
-        '제1일차 (10.13): 담양여중 출정 ➔ 인천공항 ➔ 상하이 푸동공항 ➔ 남경로 보행가 ➔ 외탄 야경',
+        '제1일차 (10.13): 담양여중 출정 ➔ 인천공항 ➔ 상하이 푸둥공항 ➔ 남경로 보행가 ➔ 마시청 서커스 관람 & 외탄 야경',
         '제2일차 (10.14): 루쉰공원(매헌기념관) ➔ 임시정부청사 ➔ 영사관 특강 ➔ 동방명주 ➔ 예원',
         '제3일차 (10.15): 상하이 과학기술관 ➔ 상하이 디즈니랜드 ➔ 야간 마법의 성 일루미네이션',
         '제4일차 (10.16): 상하이 푸동공항 출국 ➔ 인천공항 ➔ 담양 귀환 및 해단식'
@@ -79,6 +82,11 @@ export const PresentationExportView: React.FC<PresentationExportViewProps> = ({
       title: '상하이 4일간 기후 조사 및 관측 결과',
       type: 'weather',
       records: weatherRecords
+    },
+    {
+      title: '3박 4일 일자별 오늘의 성찰일지',
+      type: 'reflection',
+      reflections: dailyReflections
     },
     {
       title: '<맞바꾼 회중시계> 독서활동과 청소년의 다짐',
@@ -242,6 +250,32 @@ export const PresentationExportView: React.FC<PresentationExportViewProps> = ({
                 </div>
               )}
 
+              {slides[currentSlide].type === 'reflection' && (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+                  {dailyReflections.map((ref) => (
+                    <div key={ref.day} className="p-3.5 rounded-2xl bg-white border border-slate-200 space-y-2 shadow-2xs">
+                      <div className="flex items-center justify-between pb-1.5 border-b border-slate-100">
+                        <span className="font-mono font-bold text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded text-[11px]">
+                          제{ref.day}일차 ({ref.date})
+                        </span>
+                      </div>
+                      <div>
+                        <strong className="text-slate-900 block text-[11px]">기억에 남는 장면:</strong>
+                        <p className="text-slate-600 line-clamp-2">{ref.memorableScene || '내용 미작성'}</p>
+                      </div>
+                      <div>
+                        <strong className="text-slate-900 block text-[11px]">가장 크게 느낀 감정:</strong>
+                        <p className="text-slate-600 line-clamp-2">{ref.biggestEmotion || '내용 미작성'}</p>
+                      </div>
+                      <div>
+                        <strong className="text-slate-900 block text-[11px]">새롭게 알게 된 것:</strong>
+                        <p className="text-slate-600 line-clamp-2">{ref.newlyLearned || '내용 미작성'}</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+
               {slides[currentSlide].type === 'book' && (
                 <div className="space-y-3 text-xs sm:text-sm">
                   <div className="p-3.5 rounded-2xl bg-amber-50/80 border border-amber-200 text-amber-950">
@@ -372,10 +406,38 @@ export const PresentationExportView: React.FC<PresentationExportViewProps> = ({
             </div>
           </div>
 
-          {/* Section 3: Book Activity */}
+          {/* Section 3: Daily Reflection Journal */}
+          <div className="space-y-4 mb-10 break-inside-avoid">
+            <h2 className="text-lg font-black text-slate-900 pb-2 border-b-2 border-slate-800">
+              III. 3박 4일 일자별 오늘의 성찰일지 (Daily Reflection)
+            </h2>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
+              {dailyReflections.map((r) => (
+                <div key={r.day} className="p-4 border border-slate-300 rounded-xl bg-slate-50/70 space-y-2">
+                  <div className="font-bold text-slate-900 flex items-center justify-between pb-1 border-b border-slate-200">
+                    <span className="font-mono text-emerald-800">제{r.day}일차 ({r.date})</span>
+                  </div>
+                  <div>
+                    <strong className="text-slate-800 block text-[11px]">1. 기억에 남는 장면이나 사건:</strong>
+                    <p className="text-slate-600 whitespace-pre-wrap">{r.memorableScene || '(내용 미작성)'}</p>
+                  </div>
+                  <div>
+                    <strong className="text-slate-800 block text-[11px]">2. 가장 크게 느낀 생각이나 감정:</strong>
+                    <p className="text-slate-600 whitespace-pre-wrap">{r.biggestEmotion || '(내용 미작성)'}</p>
+                  </div>
+                  <div>
+                    <strong className="text-slate-800 block text-[11px]">3. 새롭게 알게 된 것:</strong>
+                    <p className="text-slate-600 whitespace-pre-wrap">{r.newlyLearned || '(내용 미작성)'}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Section 4: Book Activity */}
           <div className="space-y-4 break-inside-avoid">
             <h2 className="text-lg font-black text-slate-900 pb-2 border-b-2 border-slate-800">
-              III. &lt;맞바꾼 회중시계&gt; 독서 활동 및 소감문
+              IV. &lt;맞바꾼 회중시계&gt; 독서 활동 및 소감문
             </h2>
             <div className="space-y-3 text-xs">
               <div className="p-3.5 bg-slate-50 rounded-xl border border-slate-200">

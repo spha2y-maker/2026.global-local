@@ -10,6 +10,7 @@ import { ImmigrationEnglishView } from './components/ImmigrationEnglishView';
 import { ChinesePhrasesView } from './components/ChinesePhrasesView';
 import { WeatherInvestigationView } from './components/WeatherInvestigationView';
 import { BookActivityView } from './components/BookActivityView';
+import { DailyReflectionView } from './components/DailyReflectionView';
 import { PresentationExportView } from './components/PresentationExportView';
 import { AdminDashboardView } from './components/AdminDashboardView';
 import { 
@@ -17,11 +18,13 @@ import {
   WorkbookEntry, 
   WeatherRecord, 
   BookActivity, 
+  DailyReflection,
   StudentSubmission 
 } from './types';
 import { 
   PLACES_DATA, 
   INITIAL_WEATHER_RECORDS, 
+  INITIAL_DAILY_REFLECTIONS,
   BOOK_ACTIVITY_BACKGROUND 
 } from './data/travelData';
 import { 
@@ -69,6 +72,9 @@ export default function App() {
   // Weather records (4 days)
   const [weatherRecords, setWeatherRecords] = useState<WeatherRecord[]>(INITIAL_WEATHER_RECORDS);
 
+  // Daily reflections (4 days)
+  const [dailyReflections, setDailyReflections] = useState<DailyReflection[]>(INITIAL_DAILY_REFLECTIONS);
+
   // Book activity
   const [bookActivity, setBookActivity] = useState<BookActivity>({
     readingSummary: '',
@@ -93,6 +99,9 @@ export default function App() {
         }
         if (sub.weatherRecords && sub.weatherRecords.length) {
           setWeatherRecords(sub.weatherRecords);
+        }
+        if (sub.dailyReflections && sub.dailyReflections.length) {
+          setDailyReflections(sub.dailyReflections);
         }
         if (sub.bookActivity) {
           setBookActivity(sub.bookActivity);
@@ -127,7 +136,7 @@ export default function App() {
 
       // Autosave to Firestore if student logged in
       if (currentUser && currentUser.role === 'student') {
-        syncToCloud(currentUser, next, weatherRecords, bookActivity, isSubmitted);
+        syncToCloud(currentUser, next, weatherRecords, dailyReflections, bookActivity, isSubmitted);
       }
       return next;
     });
@@ -138,7 +147,43 @@ export default function App() {
     setWeatherRecords((prev) => {
       const next = prev.map((w) => (w.day === day ? { ...w, ...updated } : w));
       if (currentUser && currentUser.role === 'student') {
-        syncToCloud(currentUser, workbookEntries, next, bookActivity, isSubmitted);
+        syncToCloud(currentUser, workbookEntries, next, dailyReflections, bookActivity, isSubmitted);
+      }
+      return next;
+    });
+  };
+
+  // Reset weather records to blank
+  const handleResetWeather = () => {
+    const blankRecords: WeatherRecord[] = INITIAL_WEATHER_RECORDS.map((w) => ({
+      ...w,
+      forecast: '',
+      morningTemp: 0,
+      afternoonTemp: 0,
+      humidity: 0,
+      clothingNotes: '',
+      studentInvestigation: ''
+    }));
+    setWeatherRecords(blankRecords);
+    if (currentUser && currentUser.role === 'student') {
+      syncToCloud(currentUser, workbookEntries, blankRecords, dailyReflections, bookActivity, isSubmitted);
+    }
+  };
+
+  // Reload standard weather reference answers
+  const handleLoadExampleWeather = () => {
+    setWeatherRecords(INITIAL_WEATHER_RECORDS);
+    if (currentUser && currentUser.role === 'student') {
+      syncToCloud(currentUser, workbookEntries, INITIAL_WEATHER_RECORDS, dailyReflections, bookActivity, isSubmitted);
+    }
+  };
+
+  // Update daily reflection
+  const handleUpdateReflection = (day: number, updated: Partial<DailyReflection>) => {
+    setDailyReflections((prev) => {
+      const next = prev.map((r) => (r.day === day ? { ...r, ...updated } : r));
+      if (currentUser && currentUser.role === 'student') {
+        syncToCloud(currentUser, workbookEntries, weatherRecords, next, bookActivity, isSubmitted);
       }
       return next;
     });
@@ -149,7 +194,7 @@ export default function App() {
     setBookActivity((prev) => {
       const next = { ...prev, ...updated };
       if (currentUser && currentUser.role === 'student') {
-        syncToCloud(currentUser, workbookEntries, weatherRecords, next, isSubmitted);
+        syncToCloud(currentUser, workbookEntries, weatherRecords, dailyReflections, next, isSubmitted);
       }
       return next;
     });
@@ -160,6 +205,7 @@ export default function App() {
     user: StudentUser,
     entries: Record<string, WorkbookEntry>,
     weather: WeatherRecord[],
+    reflections: DailyReflection[],
     book: BookActivity,
     completed: boolean
   ) => {
@@ -171,6 +217,7 @@ export default function App() {
       school: user.school,
       workbookEntries: entries,
       weatherRecords: weather,
+      dailyReflections: reflections,
       bookActivity: book,
       isCompleted: completed,
       totalStamps,
@@ -200,6 +247,7 @@ export default function App() {
         school: currentUser.school,
         workbookEntries,
         weatherRecords,
+        dailyReflections,
         bookActivity,
         isCompleted: true,
         totalStamps,
@@ -233,6 +281,9 @@ export default function App() {
         if (sub.weatherRecords && sub.weatherRecords.length) {
           setWeatherRecords(sub.weatherRecords);
         }
+        if (sub.dailyReflections && sub.dailyReflections.length) {
+          setDailyReflections(sub.dailyReflections);
+        }
         if (sub.bookActivity) {
           setBookActivity(sub.bookActivity);
         }
@@ -252,6 +303,7 @@ export default function App() {
         });
         setWorkbookEntries(fresh);
         setWeatherRecords(INITIAL_WEATHER_RECORDS);
+        setDailyReflections(INITIAL_DAILY_REFLECTIONS);
         setBookActivity({
           readingSummary: '',
           clockExchangeMeaning: '',
@@ -334,6 +386,13 @@ export default function App() {
           />
         )}
 
+        {activeTab === 'reflection' && (
+          <DailyReflectionView
+            reflections={dailyReflections}
+            onUpdateReflection={handleUpdateReflection}
+          />
+        )}
+
         {activeTab === 'toolkit' && <TravelToolkitView />}
 
         {activeTab === 'immigration' && <ImmigrationEnglishView />}
@@ -344,6 +403,8 @@ export default function App() {
           <WeatherInvestigationView
             records={weatherRecords}
             onUpdateRecord={handleUpdateWeather}
+            onResetRecords={handleResetWeather}
+            onLoadExampleRecords={handleLoadExampleWeather}
           />
         )}
 
@@ -359,6 +420,7 @@ export default function App() {
             currentUser={currentUser}
             entries={workbookEntries}
             weatherRecords={weatherRecords}
+            dailyReflections={dailyReflections}
             bookActivity={bookActivity}
           />
         )}
