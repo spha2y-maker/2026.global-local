@@ -20,7 +20,8 @@ import {
   ChevronRight,
   Compass,
   Building2,
-  Users
+  Users,
+  BookHeart
 } from 'lucide-react';
 import { StudentUser, WorkbookEntry } from '../types';
 import { PLACES_DATA } from '../data/travelData';
@@ -140,6 +141,15 @@ export const HomeView: React.FC<HomeViewProps> = ({
       badgeColor: 'bg-emerald-100 text-emerald-800'
     },
     {
+      id: 'reflection',
+      title: '오늘의 성찰일지 (일차별)',
+      desc: '1~4일차 일정별 배움과 느낀 점, 탐방 성찰 기록 작성',
+      icon: BookHeart,
+      emoji: '📝',
+      badge: '1~4일차 일지',
+      badgeColor: 'bg-teal-100 text-teal-800'
+    },
+    {
       id: 'stamps',
       title: '사진인증 스탬프 랠리',
       desc: '8개 현장 미션 인증 사진을 찍고 디지털 스탬프 수집 및 완주 제출',
@@ -246,37 +256,40 @@ export const HomeView: React.FC<HomeViewProps> = ({
               담양여중 학생들이 대나무의 곧은 기개와 글로컬 안목을 키워가는 자기주도 융합 워크북입니다.
             </p>
 
-            {/* Date & Location Pill */}
-            <div className="flex flex-wrap items-center gap-2.5 pt-1 text-xs text-emerald-100 font-medium">
-              <span className="inline-flex items-center gap-1.5 bg-emerald-900/50 px-3 py-1 rounded-xl border border-emerald-500/30">
-                <Calendar className="w-3.5 h-3.5 text-emerald-300" />
-                2026년 10월 13일(화) ~ 10월 16일(금) [3박 4일]
+            {/* Date & Location & Live Weather Metadata Pills with perfect responsiveness */}
+            <div className="flex flex-wrap items-center gap-2 pt-2 text-xs text-emerald-100 font-medium">
+              <span className="inline-flex items-center gap-1.5 bg-emerald-900/60 backdrop-blur-xs px-2.5 sm:px-3 py-1 rounded-xl border border-emerald-500/30 whitespace-nowrap">
+                <Calendar className="w-3.5 h-3.5 text-emerald-300 shrink-0" />
+                <span>2026. 10. 13.(화) ~ 10. 16.(금) [3박 4일]</span>
               </span>
-              <span className="inline-flex items-center gap-1.5 bg-emerald-900/50 px-3 py-1 rounded-xl border border-emerald-500/30">
-                <Clock className="w-3.5 h-3.5 text-emerald-300" />
-                1일차 담양 집결 07:00 출발
+              <span className="inline-flex items-center gap-1.5 bg-emerald-900/60 backdrop-blur-xs px-2.5 sm:px-3 py-1 rounded-xl border border-emerald-500/30 whitespace-nowrap">
+                <Clock className="w-3.5 h-3.5 text-emerald-300 shrink-0" />
+                <span>담양 집결 07:00</span>
               </span>
-              <span className="inline-flex items-center gap-1.5 bg-emerald-900/50 px-3 py-1 rounded-xl border border-emerald-500/30">
-                <Building2 className="w-3.5 h-3.5 text-emerald-300" />
-                중국 상하이 일원
+              <span className="inline-flex items-center gap-1.5 bg-emerald-900/60 backdrop-blur-xs px-2.5 sm:px-3 py-1 rounded-xl border border-emerald-500/30 whitespace-nowrap">
+                <Building2 className="w-3.5 h-3.5 text-emerald-300 shrink-0" />
+                <span>상하이 일원</span>
               </span>
 
               {/* Real-time Shanghai Weather Pill */}
               {liveWeather && (
                 <button
                   onClick={() => setActiveTab('weather')}
-                  className="inline-flex items-center gap-2 bg-emerald-950/80 hover:bg-emerald-900 transition px-3 py-1 rounded-xl border border-emerald-400/50 text-xs text-white group cursor-pointer shadow-xs"
+                  className="inline-flex items-center gap-1.5 sm:gap-2 bg-emerald-950/90 hover:bg-emerald-900 active:scale-98 transition px-2.5 sm:px-3 py-1 rounded-xl border border-emerald-400/60 text-xs text-white group cursor-pointer shadow-xs whitespace-nowrap"
                   title="상하이 실시간 기후 조사 워크북으로 바로가기"
                 >
-                  <span className="relative flex h-2 w-2">
+                  <span className="relative flex h-2 w-2 shrink-0">
                     <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
                     <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
                   </span>
-                  <span className="text-emerald-200">상하이 실시간:</span>
+                  <span className="text-emerald-300 font-medium">상하이 실시간:</span>
                   <span className="text-white font-mono font-bold">{liveWeather.temperature}°C</span>
-                  <span>{liveWeather.weatherEmoji} {liveWeather.weatherText}</span>
+                  <span className="flex items-center gap-1">
+                    <span>{liveWeather.weatherEmoji}</span>
+                    <span className="hidden sm:inline">{liveWeather.weatherText}</span>
+                  </span>
                   <span className="text-emerald-300 text-[11px]">(습도 {liveWeather.humidity}%)</span>
-                  <ArrowRight className="w-3 h-3 text-emerald-300 group-hover:translate-x-0.5 transition" />
+                  <ArrowRight className="w-3 h-3 text-emerald-300 group-hover:translate-x-0.5 transition shrink-0" />
                 </button>
               )}
             </div>
