@@ -70,7 +70,7 @@ export const ScheduleView: React.FC<{ onNavigateToPlace?: (id: string) => void }
           time: '08:00', 
           type: 'spot', 
           title: '루쉰공원 (윤봉길 의사 매헌 기념관)', 
-          desc: '1932년 홍커우 공원 의거 현장 참배, <맞바꾼 회중시계> 배경지 탐구 및 추모문 작성',
+          desc: '1932년 홍커우 공원 의거 현장 참배, 윤봉길 의사 숭고한 나라사랑 추모문 작성',
           placeId: 'luxun_park'
         },
         { 

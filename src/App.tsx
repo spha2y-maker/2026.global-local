@@ -9,7 +9,6 @@ import { TravelToolkitView } from './components/TravelToolkitView';
 import { ImmigrationEnglishView } from './components/ImmigrationEnglishView';
 import { ChinesePhrasesView } from './components/ChinesePhrasesView';
 import { WeatherInvestigationView } from './components/WeatherInvestigationView';
-import { BookActivityView } from './components/BookActivityView';
 import { DailyReflectionView } from './components/DailyReflectionView';
 import { PresentationExportView } from './components/PresentationExportView';
 import { AdminDashboardView } from './components/AdminDashboardView';
@@ -405,13 +404,6 @@ export default function App() {
             onUpdateRecord={handleUpdateWeather}
             onResetRecords={handleResetWeather}
             onLoadExampleRecords={handleLoadExampleWeather}
-          />
-        )}
-
-        {activeTab === 'book' && (
-          <BookActivityView
-            activity={bookActivity}
-            onUpdateActivity={handleUpdateBookActivity}
           />
         )}
 

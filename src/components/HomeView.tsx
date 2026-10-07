@@ -195,15 +195,6 @@ export const HomeView: React.FC<HomeViewProps> = ({
       badgeColor: 'bg-cyan-100 text-cyan-800'
     },
     {
-      id: 'book',
-      title: '<맞바꾼 회중시계> 독서 활동',
-      desc: '김구와 윤봉길의 시계 교환에 담긴 역사적 의미와 나의 다짐',
-      icon: BookOpen,
-      emoji: '📖',
-      badge: '국어·역사·도덕',
-      badgeColor: 'bg-rose-100 text-rose-800'
-    },
-    {
       id: 'export',
       title: 'PPT 발표 & 워크북 PDF 출력',
       desc: '완성된 나만의 탐방 기록을 슬라이드로 발표하고 인쇄/제출하기',

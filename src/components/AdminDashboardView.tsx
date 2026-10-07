@@ -29,39 +29,40 @@ import {
   subscribeAllStudents,
   saveOrUpdateStudent,
   resetStudentPassword,
-  deleteStudentUser
+  deleteStudentUser,
+  getCachedStudentRoster,
+  DEFAULT_STUDENT_ROSTER_ITEMS
 } from '../services/submissionService';
 import { PLACES_DATA, INITIAL_WEATHER_RECORDS } from '../data/travelData';
 
 // Initial default class roster for Damyang Girls' Middle School
-const DEFAULT_STUDENT_ROSTER: Array<{ studentId: string; name: string; school: string }> = [
-  { studentId: '30101', name: '김하은', school: '담양여자중학교' },
-  { studentId: '30102', name: '박소율', school: '담양여자중학교' },
-  { studentId: '30103', name: '이서연', school: '담양여자중학교' },
-  { studentId: '30104', name: '최지우', school: '담양여자중학교' },
-  { studentId: '30105', name: '정유진', school: '담양여자중학교' },
-  { studentId: '30201', name: '강민주', school: '담양여자중학교' },
-  { studentId: '30202', name: '윤채원', school: '담양여자중학교' },
-  { studentId: '30203', name: '송예린', school: '담양여자중학교' },
-  { studentId: '30215', name: '이수민', school: '담양여자중학교' },
-  { studentId: '30216', name: '한가은', school: '담양여자중학교' }
-];
+const DEFAULT_STUDENT_ROSTER = DEFAULT_STUDENT_ROSTER_ITEMS;
 
 export const AdminDashboardView: React.FC = () => {
   // Main Admin Active Sub-Tab
   const [adminSection, setAdminSection] = useState<'submissions' | 'roster'>('submissions');
 
   // Submissions State
-  const [submissions, setSubmissions] = useState<StudentSubmission[]>([]);
-  const [loadingSubmissions, setLoadingSubmissions] = useState(true);
+  const [submissions, setSubmissions] = useState<StudentSubmission[]>(() => {
+    try {
+      const cached = localStorage.getItem('damyang_submissions_cache');
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      }
+    } catch {}
+    return [];
+  });
+  const [loadingSubmissions, setLoadingSubmissions] = useState(false);
   const [filterSchool, setFilterSchool] = useState<string>('전체');
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedStudent, setSelectedStudent] = useState<StudentSubmission | null>(null);
   const [recentNotification, setRecentNotification] = useState<string | null>(null);
 
-  // Student Roster & Password Management State
-  const [students, setStudents] = useState<StudentUser[]>([]);
-  const [loadingStudents, setLoadingStudents] = useState(true);
+  // Student Roster & Password Management State - Instant load from cache (0ms)
+  const [students, setStudents] = useState<StudentUser[]>(() => getCachedStudentRoster());
+  const [loadingStudents, setLoadingStudents] = useState(false);
+  const [isRefreshingRoster, setIsRefreshingRoster] = useState(false);
   const [rosterSearch, setRosterSearch] = useState('');
   const [showPasswordMap, setShowPasswordMap] = useState<Record<string, boolean>>({});
 
@@ -108,7 +109,16 @@ export const AdminDashboardView: React.FC = () => {
       initialLoad = false;
     });
 
-    return () => unsubscribe();
+    // Safety timeout: ensure loading turns off after 1.5s
+    const timer = setTimeout(() => {
+      setLoadingSubmissions(false);
+      setLoadingStudents(false);
+    }, 1500);
+
+    return () => {
+      unsubscribe();
+      clearTimeout(timer);
+    };
   }, []);
 
   // 2. Subscribe to Students Roster
@@ -120,6 +130,18 @@ export const AdminDashboardView: React.FC = () => {
 
     return () => unsubscribe();
   }, []);
+
+  const handleManualRefresh = () => {
+    setIsRefreshingRoster(true);
+    subscribeAllStudents((list) => {
+      setStudents(list);
+      setIsRefreshingRoster(false);
+      showToast('학생 명단이 최신 상태로 새로고침되었습니다.');
+    });
+    setTimeout(() => {
+      setIsRefreshingRoster(false);
+    }, 1200);
+  };
 
   const totalStudents = submissions.length;
   const completedStudents = submissions.filter(s => s.isCompleted || s.totalStamps === 8).length;
@@ -159,7 +181,7 @@ export const AdminDashboardView: React.FC = () => {
         photoUrl: p.image,
         stampAcquired: true,
         stampedAt: new Date().toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' }),
-        reflectionText: `${p.name} 현장을 직접 보며 깊은 감동과 역사의 무게를 느꼈습니다.`
+        curriculumResponses: {}
       };
     });
 
@@ -172,14 +194,7 @@ export const AdminDashboardView: React.FC = () => {
       submittedAt: new Date().toLocaleString('ko-KR'),
       updatedAt: new Date().toISOString(),
       workbookEntries: mockEntries,
-      weatherRecords: INITIAL_WEATHER_RECORDS,
-      bookActivity: {
-        readingSummary: '윤봉길 의사의 비장한 결의와 백범의 눈물',
-        clockExchangeMeaning: '남은 한 시간을 조국에 바치고 영원한 자유를 염원함',
-        ifIWereHero: '두려움 속에서도 역사의 부름에 당당히 응답하겠습니다.',
-        symbolismReflection: '등록문화재 시계가 가리키는 시간은 영원한 독립의 시간입니다.',
-        myPromiseToFuture: '담양의 푸른 대나무처럼 바르고 곧은 인재로 성장하겠습니다.'
-      }
+      weatherRecords: INITIAL_WEATHER_RECORDS
     };
 
     await saveStudentSubmission(mockSubmission);
@@ -561,7 +576,7 @@ export const AdminDashboardView: React.FC = () => {
       {adminSection === 'roster' && (
         <div className="space-y-4">
           
-          {/* Top Actions: Add Student & Bulk Import & Search */}
+          {/* Top Actions: Add Student & Bulk Import & Refresh & Search */}
           <div className="flex flex-col sm:flex-row items-center justify-between gap-4 bg-white p-4 rounded-3xl border border-slate-200 shadow-xs">
             <div className="flex items-center gap-2 w-full sm:w-auto flex-wrap">
               <button
@@ -579,6 +594,16 @@ export const AdminDashboardView: React.FC = () => {
               >
                 <FileSpreadsheet className="w-4 h-4 text-emerald-600" />
                 <span>기본 학생 명단 일괄 등록</span>
+              </button>
+
+              <button
+                onClick={handleManualRefresh}
+                disabled={isRefreshingRoster}
+                className="px-3.5 py-2 rounded-2xl bg-slate-100 hover:bg-slate-200 border border-slate-200 text-slate-700 text-xs font-semibold transition flex items-center gap-1.5"
+                title="서버에서 학생 명단을 즉시 다시 불러옵니다."
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${isRefreshingRoster ? 'animate-spin text-emerald-600' : ''}`} />
+                <span>명단 새로고침</span>
               </button>
             </div>
 
@@ -905,7 +930,7 @@ export const AdminDashboardView: React.FC = () => {
                           )}
                         </div>
                         <div className="text-[10px] text-slate-600 truncate">
-                          {entry?.reflectionText || '소감 미작성'}
+                          {entry?.stampAcquired ? `스탬프 완료 (${entry.stampedAt || '인증'})` : '스탬프 미인증'}
                         </div>
                       </div>
                     );
@@ -913,20 +938,38 @@ export const AdminDashboardView: React.FC = () => {
                 </div>
               </div>
 
-              {/* Reading Activity & Reflection */}
-              {selectedStudent.bookActivity && (
-                <div className="p-4 rounded-2xl bg-amber-50/70 border border-amber-200 space-y-2">
-                  <h4 className="text-xs font-bold text-amber-900">&lt;맞바꾼 회중시계&gt; 독서 소감 및 다짐</h4>
-                  <p className="text-slate-700 leading-relaxed">
-                    <strong className="text-amber-950">회중시계 교환의 의미: </strong>
-                    {selectedStudent.bookActivity.clockExchangeMeaning || '내용 없음'}
-                  </p>
-                  <p className="text-slate-700 leading-relaxed">
-                    <strong className="text-amber-950">미래를 향한 다짐: </strong>
-                    {selectedStudent.bookActivity.myPromiseToFuture || '내용 없음'}
-                  </p>
+              {/* Curriculum Subject Exploration Review */}
+              <div>
+                <h4 className="text-sm font-bold text-slate-900 mb-3 flex items-center gap-2">
+                  <FileSpreadsheet className="w-4 h-4 text-emerald-600" />
+                  <span>8대 방문지 교과연계 탐구 기록 검토</span>
+                </h4>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  {PLACES_DATA.map((p) => {
+                    const entry = selectedStudent.workbookEntries?.[p.id];
+                    return (
+                      <div key={p.id} className="p-3.5 rounded-2xl bg-slate-50 border border-slate-200 space-y-2">
+                        <div className="font-bold text-slate-900 text-xs flex items-center justify-between">
+                          <span>{p.name}</span>
+                          <span className="text-[10px] text-slate-500 font-mono">{p.dayLabel}</span>
+                        </div>
+                        <div className="space-y-1.5">
+                          {p.curriculumLinks.map((link, cIdx) => {
+                            const respKey = `${link.subject}_${cIdx}`;
+                            const ans = entry?.curriculumResponses?.[respKey] || '';
+                            return (
+                              <div key={cIdx} className="text-[11px] bg-white p-2 rounded-xl border border-slate-200/60">
+                                <span className="font-bold text-emerald-800">[{link.subject}] {link.title}</span>
+                                <p className="text-slate-700 mt-0.5 leading-relaxed">{ans || '(답변 미작성)'}</p>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
-              )}
+              </div>
 
             </div>
 

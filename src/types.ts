@@ -97,7 +97,7 @@ export interface StudentSubmission {
   totalStamps: number;
   workbookEntries: Record<string, WorkbookEntry>;
   weatherRecords: WeatherRecord[];
-  bookActivity: BookActivity;
+  bookActivity?: BookActivity;
   dailyReflections?: DailyReflection[];
 }
 

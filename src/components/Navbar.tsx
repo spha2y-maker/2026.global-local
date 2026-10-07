@@ -56,7 +56,6 @@ export const Navbar: React.FC<NavbarProps> = ({
     { id: 'reflection', label: '오늘의 성찰일지', icon: BookHeart, emoji: '📝' },
     { id: 'stamps', label: '스탬프 랠리', icon: Award, emoji: '💮', badge: `${stampsCount}/${totalStamps}` },
     { id: 'weather', label: '기후 조사', icon: CloudSun, emoji: '⛅' },
-    { id: 'book', label: '<맞바꾼 회중시계>', icon: BookOpen, emoji: '📖' },
     { id: 'toolkit', label: '여행 툴킷', icon: Luggage, emoji: '🧳' },
     { id: 'immigration', label: '입국심사 영어', icon: Plane, emoji: '✈️' },
     { id: 'chinese', label: '필수 중국어', icon: Languages, emoji: '🇨🇳' },

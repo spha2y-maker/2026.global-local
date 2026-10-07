@@ -49,10 +49,6 @@ export const PlacesWorkbookView: React.FC<PlacesWorkbookViewProps> = ({
     onUpdateEntry(activePlace.id, { curriculumResponses: updatedResponses });
   };
 
-  const handleGeneralReflectionChange = (text: string) => {
-    onUpdateEntry(activePlace.id, { reflectionText: text });
-  };
-
   return (
     <div className="space-y-6 animate-in fade-in duration-300 text-slate-800">
 
@@ -308,25 +304,6 @@ export const PlacesWorkbookView: React.FC<PlacesWorkbookViewProps> = ({
                   </div>
                 );
               })}
-
-              {/* General Place Reflection */}
-              <div className="p-5 rounded-2xl bg-slate-50 border border-slate-200 space-y-3">
-                <div className="flex items-center gap-2">
-                  <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-teal-100 text-teal-800 border border-teal-200">
-                    종합 소감
-                  </span>
-                  <h4 className="text-sm font-bold text-slate-900">
-                    {activePlace.name} 현장 답사 총평 & 한 줄 생각
-                  </h4>
-                </div>
-                <textarea
-                  rows={3}
-                  value={activeEntry.reflectionText || ''}
-                  onChange={(e) => handleGeneralReflectionChange(e.target.value)}
-                  placeholder="이 장소를 직접 눈으로 보고 발로 디디며 느낀 가장 강렬했던 감정이나 새로운 배움을 한 편의 글로 남겨보세요..."
-                  className="w-full bg-white border border-slate-300 rounded-2xl p-3.5 text-xs sm:text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100 transition"
-                />
-              </div>
 
             </div>
 
