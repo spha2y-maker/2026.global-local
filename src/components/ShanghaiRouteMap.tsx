@@ -74,7 +74,7 @@ const PLACES: PlacePoint[] = [
   },
   { 
     id: 'prov_gov', 
-    title: '대한민국 임시정부청사', 
+    title: '상하이 대한민국 임시정부청사', 
     chinese: '大韩民国临时政府旧址',
     lat: 31.2185, 
     lng: 121.4729, 
@@ -694,7 +694,7 @@ export const ShanghaiRouteMap: React.FC<ShanghaiRouteMapProps> = ({ onNavigateTo
                     #{p.order}
                   </span>
                 </div>
-                <div className="text-xs font-bold text-slate-900 truncate">{p.title.split(' ')[0]}</div>
+                <div className="text-xs font-bold text-slate-900 leading-tight line-clamp-2 min-h-[32px] flex items-center" title={p.title}>{p.title}</div>
                 <div className="text-[10px] text-slate-500 truncate">{p.chinese}</div>
               </button>
             );

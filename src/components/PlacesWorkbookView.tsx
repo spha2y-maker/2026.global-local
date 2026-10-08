@@ -145,12 +145,15 @@ export const PlacesWorkbookView: React.FC<PlacesWorkbookViewProps> = ({
                   )}
                 </div>
 
-                <div className="mt-2">
-                  <div className={`text-[10px] font-mono truncate ${isSelected ? 'text-emerald-100' : 'text-emerald-700 font-semibold'}`}>
+                <div className="mt-2 min-h-[46px] flex flex-col justify-end">
+                  <div className={`text-[10px] font-mono ${isSelected ? 'text-emerald-100' : 'text-emerald-700 font-semibold'}`}>
                     {place.dayLabel.split(' ')[0]}
                   </div>
-                  <div className={`text-xs font-bold truncate mt-0.5 transition ${isSelected ? 'text-white' : 'text-slate-800 group-hover:text-emerald-700'}`}>
-                    {place.name.split(' ')[0]}
+                  <div 
+                    className={`text-xs font-bold leading-tight mt-0.5 transition line-clamp-2 ${isSelected ? 'text-white' : 'text-slate-800 group-hover:text-emerald-700'}`}
+                    title={place.name}
+                  >
+                    {place.name}
                   </div>
                 </div>
               </button>

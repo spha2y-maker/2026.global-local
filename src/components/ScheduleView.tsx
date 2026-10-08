@@ -58,7 +58,7 @@ export const ScheduleView: React.FC<{ onNavigateToPlace?: (id: string) => void }
       day: 2,
       date: '10.14 (수)',
       title: '제2일차 : 불멸의 독립운동 성지와 역사의 숨결',
-      summary: '루쉰공원(매헌기념관) ➔ 임시정부청사 ➔ 영사관 특강 ➔ 동방명주 ➔ 예원 옛거리',
+      summary: '루쉰공원(매헌기념관) ➔ 상하이 대한민국 임시정부청사 ➔ 영사관 특강 ➔ 동방명주 ➔ 예원 옛거리',
       meals: {
         breakfast: '호텔 조식 뷔페',
         lunch: '금미로 식당 (광동요리)',
@@ -104,7 +104,7 @@ export const ScheduleView: React.FC<{ onNavigateToPlace?: (id: string) => void }
       day: 3,
       date: '10.15 (목)',
       title: '제3일차 : 미래 첨단 과학과 글로벌 문화 콘텐츠',
-      summary: '상하이 과학기술관 ➔ 디즈니랜드 매직 킹덤 & 야간 일루미네이션 쇼',
+      summary: '상하이 과학기술관 ➔ 상하이 디즈니랜드 매직 킹덤 & 야간 일루미네이션 쇼',
       meals: {
         breakfast: '호텔 조식 뷔페',
         lunch: '하랑한식당',
@@ -157,7 +157,7 @@ export const ScheduleView: React.FC<{ onNavigateToPlace?: (id: string) => void }
   const curriculumMatrix = [
     { subject: '국어', pre: 'AI 도구 활용 상하이 방문지 웹자료 제작', field: '여행지 소개 발표 자료 수집(미션 수행)', post: '다양한 매체 자료로 여행지 발표 제작' },
     { subject: '도덕', pre: '문화를 바라보는 다양한 관점 탐구', field: '문화 상대주의적 태도로 중국 문화 체험', post: '보편 규범에 근거한 타문화·자문화 성찰' },
-    { subject: '역사', pre: '상하이 독립운동의 발자취 사전 조사', field: '임시정부청사, 뤼순/루쉰공원 답사', post: '독립운동의 숭고함과 애국심 소감문' },
+    { subject: '역사', pre: '상하이 독립운동의 발자취 사전 조사', field: '상하이 대한민국 임시정부청사, 루쉰공원 답사', post: '독립운동의 숭고함과 애국심 소감문' },
     { subject: '사회', pre: '상하이 경제·문화·역사적 세계 도시 특성', field: '세계적 매력 도시의 인프라·도시 구조 관찰', post: '세계 도시의 매력 요소(규모, 다양성, 역사) 정리' },
     { subject: '수학', pre: '황금비의 뜻과 생활 속 황금비 발견', field: '랜드마크 기하학적 구조 및 건축물 속 황금비', post: '황금 사각형을 이용한 나만의 명함 제작' },
     { subject: '과학', pre: '상하이 계절별 일기도 해석 및 날씨 예측', field: '탐방 기간 일자별 기온·습도·날씨 기록', post: '수질 환경과 중국 수권 특성 조사 보고서' },

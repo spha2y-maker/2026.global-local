@@ -55,7 +55,7 @@ export const DailyReflectionView: React.FC<DailyReflectionViewProps> = ({
     },
     2: {
       title: '불멸의 독립운동 성지와 역사의 숨결',
-      places: '루쉰공원(매헌기념관) ➔ 임시정부청사 ➔ 영사관 특강 ➔ 동방명주 ➔ 예원'
+      places: '루쉰공원(매헌기념관) ➔ 상하이 대한민국 임시정부청사 ➔ 영사관 특강 ➔ 동방명주 ➔ 예원'
     },
     3: {
       title: '미래 첨단 과학과 글로벌 문화 콘텐츠',

@@ -594,9 +594,9 @@ export const CURRICULUM_TABLE_DATA: CurriculumTableItem[] = [
     subject: '역사',
     category: '인문사회',
     preTrip: '상해 독립운동의 발자취',
-    duringTrip: '대한민국임시정부청사, 뤼순공원(훙커우공원) 답사',
+    duringTrip: '상하이 대한민국 임시정부청사, 루쉰공원(매헌기념관) 답사',
     postTrip: '답사 후 우리나라 독립운동에 대한 느낀점 작성',
-    relatedPlaces: '대한민국임시정부청사, 루쉰공원, 남경로, 외탄',
+    relatedPlaces: '상하이 대한민국 임시정부청사, 루쉰공원, 남경로, 외탄',
     highlight: '독립운동의 발자취 & 순국선열 추모'
   },
   {
@@ -636,7 +636,7 @@ export const CURRICULUM_TABLE_DATA: CurriculumTableItem[] = [
     preTrip: '상하이의 기후와 자연 환경에 따른 주생활 문화 조사하기',
     duringTrip: '상하이의 건축물 견학 후 기후와 자연 환경 요인을 분석하여 기록하기',
     postTrip: '기록한 날씨 정보 보고서 작성하고 발표하기',
-    relatedPlaces: '임시정부청사(스쿠먼 양식), 상하이 과학기술관',
+    relatedPlaces: '상하이 대한민국 임시정부청사(스쿠먼 양식), 상하이 과학기술관',
     highlight: '기후 적응 건축 & 주생활 문화'
   },
   {

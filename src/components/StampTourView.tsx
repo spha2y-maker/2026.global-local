@@ -295,8 +295,11 @@ export const StampTourView: React.FC<StampTourViewProps> = ({
                 }`}>
                   {p.emoji}
                 </div>
-                <span className={`text-[10px] text-center truncate w-full ${isStamped ? 'font-bold text-emerald-800' : 'text-slate-500'}`}>
-                  {p.name.split(' ')[0]}
+                <span 
+                  className={`text-[10px] text-center leading-tight line-clamp-2 w-full min-h-[26px] flex items-center justify-center ${isStamped ? 'font-bold text-emerald-800' : 'text-slate-500'}`}
+                  title={p.name}
+                >
+                  {p.name}
                 </span>
               </div>
             );
