@@ -31,7 +31,7 @@ export const ScheduleView: React.FC<{ onNavigateToPlace?: (id: string) => void }
         dinner: '르네상스 호텔 샤브샤브 특식'
       },
       schedule: [
-        { time: '07:00', type: 'move', title: '담양 집결 후 전용차량으로 인천공항 이동 (07:00 출발)', desc: '담양 출발(07:00), 단체 인원 점검 및 안전 교육' },
+        { time: '06:00', type: 'move', title: '담양 집결 후 전용차량으로 인천공항 이동 (06:00 출발)', desc: '담양 출발(06:00), 단체 인원 점검 및 안전 교육' },
         { time: '11:00', type: 'airport', title: '인천 국제공항(제2여객터미널) 도착 & 출국 수속', desc: '항공권 발권, 수하물 위탁, 출국 심사' },
         { time: '14:00', type: 'flight', title: '인천 출발 / 상하이 푸둥공항 향발', desc: '비행 소요시간 약 2시간, 기내식 제공' },
         { time: '15:00', type: 'arrive', title: '상하이 푸둥공항 도착 후 입국수속', desc: '시차: 한국보다 1시간 느림 (-1시간), 입국심사대 영어/중국어 실습' },

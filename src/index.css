@@ -1,5 +1,27 @@
 @import "tailwindcss";
 
+/* Leaflet Container & Tailwind v4 Tile Fixes */
+.leaflet-container {
+  width: 100% !important;
+  height: 100% !important;
+  z-index: 1;
+  background-color: #f1f5f9;
+}
+
+.leaflet-container img {
+  max-width: none !important;
+  max-height: none !important;
+}
+
+.leaflet-pane {
+  z-index: 400 !important;
+}
+
+.leaflet-top,
+.leaflet-bottom {
+  z-index: 500 !important;
+}
+
 @layer base {
   body {
     background-color: #f8fafc;

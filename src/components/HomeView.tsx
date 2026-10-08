@@ -48,7 +48,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
       .catch(err => console.warn('Home live weather fetch err:', err));
   }, []);
 
-  // D-Day Target: 2026-10-13 07:00:00 (KST, UTC+9)
+  // D-Day Target: 2026-10-13 06:00:00 (KST, UTC+9)
   const [timeLeft, setTimeLeft] = useState<{
     days: number;
     hours: number;
@@ -59,7 +59,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
 
   useEffect(() => {
     const calculateCountdown = () => {
-      const departureDate = new Date('2026-10-13T07:00:00+09:00').getTime();
+      const departureDate = new Date('2026-10-13T06:00:00+09:00').getTime();
       const now = new Date().getTime();
       const difference = departureDate - now;
 
@@ -125,7 +125,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
     {
       id: 'schedule',
       title: '3박 4일 탐방 일정표',
-      desc: '담양 집결(07:00)부터 인천공항, 상하이 명소 코스 및 식사 안내',
+      desc: '담양 집결(06:00)부터 인천공항, 상하이 명소 코스 및 식사 안내',
       icon: Calendar,
       emoji: '📅',
       badge: '10.13 ~ 10.16',
@@ -255,7 +255,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
               </span>
               <span className="inline-flex items-center gap-1.5 bg-emerald-900/60 backdrop-blur-xs px-2.5 sm:px-3 py-1 rounded-xl border border-emerald-500/30 whitespace-nowrap">
                 <Clock className="w-3.5 h-3.5 text-emerald-300 shrink-0" />
-                <span>담양 집결 07:00</span>
+                <span>담양 집결 06:00</span>
               </span>
               <span className="inline-flex items-center gap-1.5 bg-emerald-900/60 backdrop-blur-xs px-2.5 sm:px-3 py-1 rounded-xl border border-emerald-500/30 whitespace-nowrap">
                 <Building2 className="w-3.5 h-3.5 text-emerald-300 shrink-0" />
