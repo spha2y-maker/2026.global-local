@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { 
   MapPin, 
   BookOpen, 
@@ -7,6 +7,7 @@ import {
   ChevronRight, 
   CheckCircle2, 
   Camera, 
+  Image as ImageIcon,
   Sparkles,
   ExternalLink,
   History,
@@ -32,6 +33,7 @@ export const PlacesWorkbookView: React.FC<PlacesWorkbookViewProps> = ({
 }) => {
   const [subTab, setSubTab] = useState<'places' | 'curriculum_table'>('places');
   const [activePlaceId, setActivePlaceId] = useState<string>(selectedPlaceId || PLACES_DATA[0].id);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const activePlace = PLACES_DATA.find((p) => p.id === activePlaceId) || PLACES_DATA[0];
   const activeEntry = entries[activePlace.id] || {
@@ -47,6 +49,53 @@ export const PlacesWorkbookView: React.FC<PlacesWorkbookViewProps> = ({
       [subjectKey]: value
     };
     onUpdateEntry(activePlace.id, { curriculumResponses: updatedResponses });
+  };
+
+  const handleDeviceFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        let width = img.width;
+        let height = img.height;
+        const maxDim = 500;
+
+        if (width > maxDim || height > maxDim) {
+          if (width > height) {
+            height = Math.round((height * maxDim) / width);
+            width = maxDim;
+          } else {
+            width = Math.round((width * maxDim) / height);
+            height = maxDim;
+          }
+        }
+
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        ctx?.drawImage(img, 0, 0, width, height);
+
+        const compressedDataUrl = canvas.toDataURL('image/jpeg', 0.65);
+        const timestamp = new Date().toLocaleString('ko-KR', {
+          month: 'numeric',
+          day: 'numeric',
+          hour: '2-digit',
+          minute: '2-digit'
+        });
+
+        onUpdateEntry(activePlace.id, {
+          photoUrl: compressedDataUrl,
+          stampAcquired: true,
+          stampedAt: timestamp
+        });
+      };
+      img.src = event.target?.result as string;
+    };
+    reader.readAsDataURL(file);
   };
 
   return (
@@ -145,12 +194,12 @@ export const PlacesWorkbookView: React.FC<PlacesWorkbookViewProps> = ({
                   )}
                 </div>
 
-                <div className="mt-2 min-h-[46px] flex flex-col justify-end">
+                <div className="mt-2 min-h-[52px] flex flex-col justify-end">
                   <div className={`text-[10px] font-mono ${isSelected ? 'text-emerald-100' : 'text-emerald-700 font-semibold'}`}>
                     {place.dayLabel.split(' ')[0]}
                   </div>
                   <div 
-                    className={`text-xs font-bold leading-tight mt-0.5 transition line-clamp-2 ${isSelected ? 'text-white' : 'text-slate-800 group-hover:text-emerald-700'}`}
+                    className={`text-xs font-bold leading-tight mt-0.5 transition line-clamp-2 break-keep ${isSelected ? 'text-white' : 'text-slate-800 group-hover:text-emerald-700'}`}
                     title={place.name}
                   >
                     {place.name}
@@ -233,20 +282,48 @@ export const PlacesWorkbookView: React.FC<PlacesWorkbookViewProps> = ({
                 </div>
               )}
 
-              {/* Stamp Action Callout */}
-              <div className="pt-2">
+              {/* Stamp Action Callout with Device File Selection */}
+              <div className="pt-2 space-y-2">
+                <input
+                  type="file"
+                  ref={fileInputRef}
+                  accept="image/*"
+                  className="hidden"
+                  onChange={handleDeviceFileSelect}
+                />
+
+                {activeEntry.stampAcquired ? (
+                  <div className="p-3.5 rounded-2xl bg-emerald-50 border border-emerald-200 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 text-xs">
+                    <span className="font-bold text-emerald-800 flex items-center gap-1.5">
+                      <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                      스탬프 완료 ({activeEntry.stampedAt || '인증됨'})
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => fileInputRef.current?.click()}
+                      className="px-3 py-1 rounded-xl bg-white hover:bg-emerald-100/50 text-emerald-700 border border-emerald-300 font-semibold text-[11px] transition shadow-2xs"
+                    >
+                      기기 사진 변경 (앨범/파일)
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => fileInputRef.current?.click()}
+                    className="w-full py-3 px-4 rounded-2xl font-semibold text-xs sm:text-sm flex items-center justify-center gap-2 transition shadow-xs bg-emerald-600 hover:bg-emerald-700 text-white shadow-emerald-600/20 active:scale-95"
+                  >
+                    <ImageIcon className="w-4 h-4" />
+                    <span>기기에서 인증 사진 첨부 (앨범/파일)</span>
+                  </button>
+                )}
+
                 <button
+                  type="button"
                   onClick={() => onNavigateToStamp(activePlace.id)}
-                  className={`w-full py-3 px-4 rounded-2xl font-semibold text-xs sm:text-sm flex items-center justify-center gap-2 transition shadow-xs ${
-                    activeEntry.stampAcquired
-                      ? 'bg-emerald-50 text-emerald-800 border border-emerald-200 hover:bg-emerald-100'
-                      : 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-md shadow-emerald-600/20'
-                  }`}
+                  className="w-full py-2 px-3 rounded-xl text-xs text-slate-600 hover:text-emerald-700 hover:bg-slate-100 flex items-center justify-center gap-1 transition"
                 >
-                  <Camera className="w-4 h-4" />
-                  <span>
-                    {activeEntry.stampAcquired ? '인증 사진 및 스탬프 확인하기' : '인증 사진 첨부하고 스탬프 찍기'}
-                  </span>
+                  <Award className="w-3.5 h-3.5 text-emerald-600" />
+                  <span>스탬프 랠리 탭에서 전체 확인하기</span>
                 </button>
               </div>
 

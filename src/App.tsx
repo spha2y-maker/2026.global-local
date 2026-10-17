@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Navbar } from './components/Navbar';
 import { LoginModal } from './components/LoginModal';
 import { HomeView } from './components/HomeView';
@@ -54,8 +54,26 @@ export default function App() {
   const [selectedPlaceId, setSelectedPlaceId] = useState<string>(PLACES_DATA[0].id);
   const [cloudSyncStatus, setCloudSyncStatus] = useState<'saving' | 'saved' | 'idle' | 'error'>('saved');
 
-  // Workbook entries per place
+  // Workbook entries per place with instant local backup restoration
   const [workbookEntries, setWorkbookEntries] = useState<Record<string, WorkbookEntry>>(() => {
+    try {
+      const savedUser = localStorage.getItem('damyang_user');
+      if (savedUser) {
+        const u = JSON.parse(savedUser);
+        const subRaw = localStorage.getItem(`submission_${u.studentId}`);
+        if (subRaw) {
+          const parsed = JSON.parse(subRaw);
+          if (parsed.workbookEntries && Object.keys(parsed.workbookEntries).length > 0) {
+            return parsed.workbookEntries;
+          }
+        }
+      }
+      const localBackup = localStorage.getItem('damyang_local_workbook');
+      if (localBackup) {
+        return JSON.parse(localBackup);
+      }
+    } catch {}
+
     const initial: Record<string, WorkbookEntry> = {};
     PLACES_DATA.forEach((p) => {
       initial[p.id] = {
@@ -69,10 +87,36 @@ export default function App() {
   });
 
   // Weather records (4 days)
-  const [weatherRecords, setWeatherRecords] = useState<WeatherRecord[]>(INITIAL_WEATHER_RECORDS);
+  const [weatherRecords, setWeatherRecords] = useState<WeatherRecord[]>(() => {
+    try {
+      const savedUser = localStorage.getItem('damyang_user');
+      if (savedUser) {
+        const u = JSON.parse(savedUser);
+        const subRaw = localStorage.getItem(`submission_${u.studentId}`);
+        if (subRaw) {
+          const parsed = JSON.parse(subRaw);
+          if (parsed.weatherRecords && parsed.weatherRecords.length > 0) return parsed.weatherRecords;
+        }
+      }
+    } catch {}
+    return INITIAL_WEATHER_RECORDS;
+  });
 
   // Daily reflections (4 days)
-  const [dailyReflections, setDailyReflections] = useState<DailyReflection[]>(INITIAL_DAILY_REFLECTIONS);
+  const [dailyReflections, setDailyReflections] = useState<DailyReflection[]>(() => {
+    try {
+      const savedUser = localStorage.getItem('damyang_user');
+      if (savedUser) {
+        const u = JSON.parse(savedUser);
+        const subRaw = localStorage.getItem(`submission_${u.studentId}`);
+        if (subRaw) {
+          const parsed = JSON.parse(subRaw);
+          if (parsed.dailyReflections && parsed.dailyReflections.length > 0) return parsed.dailyReflections;
+        }
+      }
+    } catch {}
+    return INITIAL_DAILY_REFLECTIONS;
+  });
 
   // Book activity
   const [bookActivity, setBookActivity] = useState<BookActivity>({
@@ -87,14 +131,27 @@ export default function App() {
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
   const [adminUnreadCount, setAdminUnreadCount] = useState<number>(0);
 
-  // Load user data on startup or user change
+  // Load user data on startup or user change with non-destructive merge
   useEffect(() => {
     if (!currentUser || currentUser.role === 'admin') return;
 
     loadStudentSubmission(currentUser.studentId).then((sub) => {
       if (sub) {
         if (sub.workbookEntries) {
-          setWorkbookEntries((prev) => ({ ...prev, ...sub.workbookEntries }));
+          setWorkbookEntries((prev) => {
+            const merged = { ...prev };
+            Object.entries(sub.workbookEntries).forEach(([k, v]) => {
+              merged[k] = {
+                ...(prev[k] || {}),
+                ...v,
+                curriculumResponses: {
+                  ...(prev[k]?.curriculumResponses || {}),
+                  ...(v.curriculumResponses || {})
+                }
+              };
+            });
+            return merged;
+          });
         }
         if (sub.weatherRecords && sub.weatherRecords.length) {
           setWeatherRecords(sub.weatherRecords);
@@ -121,83 +178,7 @@ export default function App() {
     return () => unsubscribe();
   }, []);
 
-  // Update workbook entry
-  const handleUpdateEntry = (placeId: string, updated: Partial<WorkbookEntry>) => {
-    setWorkbookEntries((prev) => {
-      const existing = prev[placeId] || {
-        placeId,
-        reflectionText: '',
-        curriculumResponses: {},
-        stampAcquired: false
-      };
-      const nextEntry = { ...existing, ...updated };
-      const next = { ...prev, [placeId]: nextEntry };
-
-      // Autosave to Firestore if student logged in
-      if (currentUser && currentUser.role === 'student') {
-        syncToCloud(currentUser, next, weatherRecords, dailyReflections, bookActivity, isSubmitted);
-      }
-      return next;
-    });
-  };
-
-  // Update weather record
-  const handleUpdateWeather = (day: number, updated: Partial<WeatherRecord>) => {
-    setWeatherRecords((prev) => {
-      const next = prev.map((w) => (w.day === day ? { ...w, ...updated } : w));
-      if (currentUser && currentUser.role === 'student') {
-        syncToCloud(currentUser, workbookEntries, next, dailyReflections, bookActivity, isSubmitted);
-      }
-      return next;
-    });
-  };
-
-  // Reset weather records to blank
-  const handleResetWeather = () => {
-    const blankRecords: WeatherRecord[] = INITIAL_WEATHER_RECORDS.map((w) => ({
-      ...w,
-      forecast: '',
-      morningTemp: 0,
-      afternoonTemp: 0,
-      humidity: 0,
-      clothingNotes: '',
-      studentInvestigation: ''
-    }));
-    setWeatherRecords(blankRecords);
-    if (currentUser && currentUser.role === 'student') {
-      syncToCloud(currentUser, workbookEntries, blankRecords, dailyReflections, bookActivity, isSubmitted);
-    }
-  };
-
-  // Reload standard weather reference answers
-  const handleLoadExampleWeather = () => {
-    setWeatherRecords(INITIAL_WEATHER_RECORDS);
-    if (currentUser && currentUser.role === 'student') {
-      syncToCloud(currentUser, workbookEntries, INITIAL_WEATHER_RECORDS, dailyReflections, bookActivity, isSubmitted);
-    }
-  };
-
-  // Update daily reflection
-  const handleUpdateReflection = (day: number, updated: Partial<DailyReflection>) => {
-    setDailyReflections((prev) => {
-      const next = prev.map((r) => (r.day === day ? { ...r, ...updated } : r));
-      if (currentUser && currentUser.role === 'student') {
-        syncToCloud(currentUser, workbookEntries, weatherRecords, next, bookActivity, isSubmitted);
-      }
-      return next;
-    });
-  };
-
-  // Update book activity
-  const handleUpdateBookActivity = (updated: Partial<BookActivity>) => {
-    setBookActivity((prev) => {
-      const next = { ...prev, ...updated };
-      if (currentUser && currentUser.role === 'student') {
-        syncToCloud(currentUser, workbookEntries, weatherRecords, dailyReflections, next, isSubmitted);
-      }
-      return next;
-    });
-  };
+  const syncTimeoutRef = useRef<any>(null);
 
   // Helper to sync to Firestore
   const syncToCloud = async (
@@ -228,6 +209,140 @@ export default function App() {
     } else {
       setCloudSyncStatus('error');
     }
+  };
+
+  // Debounced cloud synchronization to prevent write conflicts and guarantee persistence
+  const debouncedSyncToCloud = useCallback((
+    user: StudentUser,
+    entries: Record<string, WorkbookEntry>,
+    weather: WeatherRecord[],
+    reflections: DailyReflection[],
+    book: BookActivity,
+    completed: boolean
+  ) => {
+    // 1. Immediately save to localStorage synchronously (0ms fail-safe)
+    try {
+      localStorage.setItem(`submission_${user.studentId}`, JSON.stringify({
+        studentId: user.studentId,
+        studentName: user.name,
+        school: user.school,
+        workbookEntries: entries,
+        weatherRecords: weather,
+        dailyReflections: reflections,
+        bookActivity: book,
+        isCompleted: completed,
+        totalStamps: (Object.values(entries) as WorkbookEntry[]).filter(e => e.stampAcquired).length,
+        updatedAt: new Date().toISOString()
+      }));
+      localStorage.setItem('damyang_local_workbook', JSON.stringify(entries));
+    } catch (e) {
+      console.warn('localStorage sync warning:', e);
+    }
+
+    setCloudSyncStatus('saving');
+
+    if (syncTimeoutRef.current) {
+      clearTimeout(syncTimeoutRef.current);
+    }
+
+    syncTimeoutRef.current = setTimeout(async () => {
+      await syncToCloud(user, entries, weather, reflections, book, completed);
+    }, 600);
+  }, []);
+
+  // Flush before leaving tab
+  useEffect(() => {
+    const handleBeforeUnload = () => {
+      if (syncTimeoutRef.current && currentUser && currentUser.role === 'student') {
+        clearTimeout(syncTimeoutRef.current);
+        syncToCloud(currentUser, workbookEntries, weatherRecords, dailyReflections, bookActivity, isSubmitted);
+      }
+    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, [currentUser, workbookEntries, weatherRecords, dailyReflections, bookActivity, isSubmitted]);
+
+  // Update workbook entry
+  const handleUpdateEntry = (placeId: string, updated: Partial<WorkbookEntry>) => {
+    setWorkbookEntries((prev) => {
+      const existing = prev[placeId] || {
+        placeId,
+        reflectionText: '',
+        curriculumResponses: {},
+        stampAcquired: false
+      };
+      const nextEntry = { ...existing, ...updated };
+      const next = { ...prev, [placeId]: nextEntry };
+
+      // Save local backup immediately
+      try {
+        localStorage.setItem('damyang_local_workbook', JSON.stringify(next));
+      } catch {}
+
+      // Autosave to Firestore if student logged in
+      if (currentUser && currentUser.role === 'student') {
+        debouncedSyncToCloud(currentUser, next, weatherRecords, dailyReflections, bookActivity, isSubmitted);
+      }
+      return next;
+    });
+  };
+
+  // Update weather record
+  const handleUpdateWeather = (day: number, updated: Partial<WeatherRecord>) => {
+    setWeatherRecords((prev) => {
+      const next = prev.map((w) => (w.day === day ? { ...w, ...updated } : w));
+      if (currentUser && currentUser.role === 'student') {
+        debouncedSyncToCloud(currentUser, workbookEntries, next, dailyReflections, bookActivity, isSubmitted);
+      }
+      return next;
+    });
+  };
+
+  // Reset weather records to blank
+  const handleResetWeather = () => {
+    const blankRecords: WeatherRecord[] = INITIAL_WEATHER_RECORDS.map((w) => ({
+      ...w,
+      forecast: '',
+      morningTemp: 0,
+      afternoonTemp: 0,
+      humidity: 0,
+      clothingNotes: '',
+      studentInvestigation: ''
+    }));
+    setWeatherRecords(blankRecords);
+    if (currentUser && currentUser.role === 'student') {
+      debouncedSyncToCloud(currentUser, workbookEntries, blankRecords, dailyReflections, bookActivity, isSubmitted);
+    }
+  };
+
+  // Reload standard weather reference answers
+  const handleLoadExampleWeather = () => {
+    setWeatherRecords(INITIAL_WEATHER_RECORDS);
+    if (currentUser && currentUser.role === 'student') {
+      debouncedSyncToCloud(currentUser, workbookEntries, INITIAL_WEATHER_RECORDS, dailyReflections, bookActivity, isSubmitted);
+    }
+  };
+
+  // Update daily reflection
+  const handleUpdateReflection = (day: number, updated: Partial<DailyReflection>) => {
+    setDailyReflections((prev) => {
+      const next = prev.map((r) => (r.day === day ? { ...r, ...updated } : r));
+      if (currentUser && currentUser.role === 'student') {
+        debouncedSyncToCloud(currentUser, workbookEntries, weatherRecords, next, bookActivity, isSubmitted);
+      }
+      return next;
+    });
+  };
+
+  // Update book activity
+  const handleUpdateBookActivity = (updated: Partial<BookActivity>) => {
+    setBookActivity((prev) => {
+      const next = { ...prev, ...updated };
+      if (currentUser && currentUser.role === 'student') {
+        debouncedSyncToCloud(currentUser, workbookEntries, weatherRecords, dailyReflections, next, isSubmitted);
+      }
+      return next;
+    });
   };
 
   // Handle final submission of 8 stamps
@@ -270,12 +385,25 @@ export default function App() {
     if (user.role === 'admin') {
       setActiveTab('admin');
     } else {
-      // Fetch this student's data from Cloud Firestore so device changes restore everything
+      // Fetch student data and safely merge so nothing is ever overwritten or lost
       setCloudSyncStatus('saving');
       const sub = await loadStudentSubmission(user.studentId);
       if (sub) {
         if (sub.workbookEntries) {
-          setWorkbookEntries(sub.workbookEntries);
+          setWorkbookEntries((prev) => {
+            const merged = { ...prev };
+            Object.entries(sub.workbookEntries).forEach(([k, v]) => {
+              merged[k] = {
+                ...(prev[k] || {}),
+                ...v,
+                curriculumResponses: {
+                  ...(prev[k]?.curriculumResponses || {}),
+                  ...(v.curriculumResponses || {})
+                }
+              };
+            });
+            return merged;
+          });
         }
         if (sub.weatherRecords && sub.weatherRecords.length) {
           setWeatherRecords(sub.weatherRecords);
@@ -290,27 +418,8 @@ export default function App() {
           setIsSubmitted(true);
         }
       } else {
-        // If first-time user with no previous data, initialize clean entries
-        const fresh: Record<string, WorkbookEntry> = {};
-        PLACES_DATA.forEach((p) => {
-          fresh[p.id] = {
-            placeId: p.id,
-            reflectionText: '',
-            curriculumResponses: {},
-            stampAcquired: false
-          };
-        });
-        setWorkbookEntries(fresh);
-        setWeatherRecords(INITIAL_WEATHER_RECORDS);
-        setDailyReflections(INITIAL_DAILY_REFLECTIONS);
-        setBookActivity({
-          readingSummary: '',
-          clockExchangeMeaning: '',
-          ifIWereHero: '',
-          symbolismReflection: '',
-          myPromiseToFuture: ''
-        });
-        setIsSubmitted(false);
+        // If first login on this device, immediately preserve and upload existing local work to their account!
+        await syncToCloud(user, workbookEntries, weatherRecords, dailyReflections, bookActivity, isSubmitted);
       }
       setCloudSyncStatus('saved');
     }

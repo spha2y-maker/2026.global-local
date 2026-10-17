@@ -47,7 +47,7 @@ export const StampTourView: React.FC<StampTourViewProps> = ({
     const file = e.target.files?.[0];
     if (!file) return;
 
-    // Read and compress image
+    // Read and compress image for lightweight cloud synchronization
     const reader = new FileReader();
     reader.onload = (event) => {
       const img = new Image();
@@ -55,7 +55,8 @@ export const StampTourView: React.FC<StampTourViewProps> = ({
         const canvas = document.createElement('canvas');
         let width = img.width;
         let height = img.height;
-        const maxDim = 900;
+        // Optimized dimensions (500px) ensuring fast upload and avoiding Firestore document limits
+        const maxDim = 500;
 
         if (width > maxDim || height > maxDim) {
           if (width > height) {
@@ -72,7 +73,7 @@ export const StampTourView: React.FC<StampTourViewProps> = ({
         const ctx = canvas.getContext('2d');
         ctx?.drawImage(img, 0, 0, width, height);
 
-        const compressedDataUrl = canvas.toDataURL('image/jpeg', 0.8);
+        const compressedDataUrl = canvas.toDataURL('image/jpeg', 0.65);
         const timestamp = new Date().toLocaleString('ko-KR', {
           month: 'numeric',
           day: 'numeric',
@@ -140,12 +141,11 @@ export const StampTourView: React.FC<StampTourViewProps> = ({
   return (
     <div className="space-y-6 animate-in fade-in duration-300 text-slate-800">
       
-      {/* Hidden File Input */}
+      {/* Hidden File Input without camera capture constraint so device album/files picker opens */}
       <input
         type="file"
         ref={fileInputRef}
         accept="image/*"
-        capture="environment"
         className="hidden"
         onChange={(e) => {
           if (selectedPlaceId) {
@@ -166,8 +166,9 @@ export const StampTourView: React.FC<StampTourViewProps> = ({
               2026. 글로컬 죽향 역사문화탐방 8대 스탬프 랠리
             </h2>
             <p className="text-slate-600 text-xs sm:text-sm mt-2 max-w-2xl leading-relaxed">
-              각 방문지 현장에서 미션 규정에 맞는 인증 사진을 촬영하여 첨부하세요. 
-              사진이 확인되면 디지털 스탬프가 날인되며, 8개를 모두 완성하면 인솔 선생님께 실시간 제출됩니다.
+              각 방문지 현장에서 미션 규정에 맞는 인증 사진을 휴대폰 앨범 또는 파일에서 첨부해 주세요.
+              카메라가 강제로 켜지지 않고, 기기에 저장된 사진을 편안하게 선택할 수 있습니다.
+              사진이 등록되면 디지털 스탬프가 날인되며, 8개를 모두 완성하면 인솔 선생님께 실시간 제출됩니다.
             </p>
           </div>
 
@@ -421,7 +422,7 @@ export const StampTourView: React.FC<StampTourViewProps> = ({
                         onClick={() => triggerUpload(place.id)}
                         className="text-[11px] text-emerald-700 hover:text-emerald-800 underline underline-offset-2 font-medium"
                       >
-                        사진 다시찍기
+                        사진 변경 (앨범/파일)
                       </button>
                     </div>
                   ) : (
@@ -430,7 +431,7 @@ export const StampTourView: React.FC<StampTourViewProps> = ({
                       className="w-full py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold shadow-md shadow-emerald-600/20 flex items-center justify-center gap-1.5 transition transform active:scale-95"
                     >
                       <Camera className="w-3.5 h-3.5" />
-                      <span>인증 사진 첨부하기</span>
+                      <span>기기 사진 파일 첨부 (앨범/파일)</span>
                     </button>
                   )}
                 </div>

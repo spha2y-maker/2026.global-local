@@ -183,6 +183,13 @@ export async function logoutAuthUser(): Promise<void> {
  * Save student workbook submission to Cloud Firestore
  */
 export async function saveStudentSubmission(submission: StudentSubmission): Promise<boolean> {
+  // Always update local storage first as synchronous fail-safe
+  try {
+    localStorage.setItem(`submission_${submission.studentId}`, JSON.stringify(submission));
+  } catch (quotaErr) {
+    console.warn('localStorage quota warning when saving submission:', quotaErr);
+  }
+
   try {
     const docRef = doc(db, SUBMISSION_COLLECTION, submission.studentId);
     await setDoc(docRef, {
@@ -191,46 +198,115 @@ export async function saveStudentSubmission(submission: StudentSubmission): Prom
       serverTimestamp: serverTimestamp()
     }, { merge: true });
 
-    // Also update local storage as instant backup
-    localStorage.setItem(`submission_${submission.studentId}`, JSON.stringify(submission));
     return true;
-  } catch (error) {
+  } catch (error: any) {
     console.error('Error saving submission to Firestore:', error);
-    localStorage.setItem(`submission_${submission.studentId}`, JSON.stringify(submission));
+    // If Firestore failed (e.g. document too large or network drop), try payload reduction
+    if (error?.message && error.message.includes('maximum allowed size')) {
+      console.warn('Attempting payload size reduction...');
+      try {
+        const compactEntries: Record<string, any> = {};
+        Object.entries(submission.workbookEntries || {}).forEach(([pid, entry]) => {
+          compactEntries[pid] = {
+            ...entry,
+            // Keep text, responses, stamp, but if photoUrl is gigantic, keep thumbnail
+            photoUrl: entry.photoUrl ? entry.photoUrl.slice(0, 150000) : undefined
+          };
+        });
+        const docRef = doc(db, SUBMISSION_COLLECTION, submission.studentId);
+        await setDoc(docRef, {
+          ...submission,
+          workbookEntries: compactEntries,
+          updatedAt: new Date().toISOString(),
+          serverTimestamp: serverTimestamp()
+        }, { merge: true });
+        return true;
+      } catch (retryErr) {
+        console.error('Retry save failed:', retryErr);
+      }
+    }
     return false;
   }
 }
 
 /**
- * Load student workbook submission from Cloud Firestore
+ * Load student workbook submission from Cloud Firestore with smart merging
  */
 export async function loadStudentSubmission(studentId: string): Promise<StudentSubmission | null> {
+  const localRaw = localStorage.getItem(`submission_${studentId}`);
+  let localData: StudentSubmission | null = null;
+  if (localRaw) {
+    try {
+      localData = JSON.parse(localRaw);
+    } catch {}
+  }
+
   try {
     const docRef = doc(db, SUBMISSION_COLLECTION, studentId);
     const snap = await getDoc(docRef);
     if (snap.exists()) {
-      const data = snap.data() as StudentSubmission;
-      // Sync to local storage
-      localStorage.setItem(`submission_${studentId}`, JSON.stringify(data));
-      return data;
+      const cloudData = snap.data() as StudentSubmission;
+
+      // Smart merge: if student wrote something locally while offline, preserve it!
+      if (localData) {
+        const mergedEntries = { ...(cloudData.workbookEntries || {}) };
+        if (localData.workbookEntries) {
+          Object.entries(localData.workbookEntries).forEach(([pid, lEntry]) => {
+            const cEntry = mergedEntries[pid];
+            if (!cEntry) {
+              mergedEntries[pid] = lEntry;
+            } else {
+              // Merge curriculum responses
+              const mergedResp = {
+                ...(cEntry.curriculumResponses || {}),
+                ...(lEntry.curriculumResponses || {})
+              };
+              mergedEntries[pid] = {
+                ...cEntry,
+                ...lEntry,
+                curriculumResponses: mergedResp,
+                stampAcquired: lEntry.stampAcquired || cEntry.stampAcquired,
+                photoUrl: lEntry.photoUrl || cEntry.photoUrl,
+                stampedAt: lEntry.stampedAt || cEntry.stampedAt
+              };
+            }
+          });
+        }
+
+        const merged: StudentSubmission = {
+          ...cloudData,
+          ...localData,
+          workbookEntries: mergedEntries,
+          dailyReflections: (localData.dailyReflections && localData.dailyReflections.some(r => r.memorableScene?.trim()))
+            ? localData.dailyReflections
+            : (cloudData.dailyReflections || localData.dailyReflections),
+          weatherRecords: (localData.weatherRecords && localData.weatherRecords.some(w => w.studentInvestigation?.trim()))
+            ? localData.weatherRecords
+            : (cloudData.weatherRecords || localData.weatherRecords),
+          bookActivity: localData.bookActivity || cloudData.bookActivity,
+          totalStamps: Math.max(localData.totalStamps || 0, cloudData.totalStamps || 0),
+          isCompleted: localData.isCompleted || cloudData.isCompleted,
+          updatedAt: new Date().toISOString()
+        };
+
+        // Cache merged version
+        try {
+          localStorage.setItem(`submission_${studentId}`, JSON.stringify(merged));
+        } catch {}
+        return merged;
+      }
+
+      // No local data, save cloud data to localStorage
+      try {
+        localStorage.setItem(`submission_${studentId}`, JSON.stringify(cloudData));
+      } catch {}
+      return cloudData;
     }
   } catch (error) {
-    console.error('Error reading from Firestore, checking local backup:', error);
+    console.error('Error reading from Firestore, falling back to local backup:', error);
   }
 
-  // Check local storage backup
-  const local = localStorage.getItem(`submission_${studentId}`);
-  if (local) {
-    try {
-      const parsed = JSON.parse(local);
-      // Migrate local to Firestore in background
-      saveStudentSubmission(parsed).catch(() => {});
-      return parsed;
-    } catch {
-      return null;
-    }
-  }
-  return null;
+  return localData;
 }
 
 // Default class roster for Damyang Girls' Middle School

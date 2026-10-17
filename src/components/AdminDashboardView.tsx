@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { 
   ShieldCheck, 
   Users, 
@@ -20,7 +20,10 @@ import {
   Unlock,
   Check,
   FileSpreadsheet,
-  AlertCircle
+  AlertCircle,
+  BookHeart,
+  Calendar,
+  CloudSun
 } from 'lucide-react';
 import { StudentSubmission, StudentUser } from '../types';
 import { 
@@ -57,6 +60,7 @@ export const AdminDashboardView: React.FC = () => {
   const [filterSchool, setFilterSchool] = useState<string>('전체');
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedStudent, setSelectedStudent] = useState<StudentSubmission | null>(null);
+  const [modalTab, setModalTab] = useState<'workbook' | 'reflections' | 'weather'>('workbook');
   const [recentNotification, setRecentNotification] = useState<string | null>(null);
 
   // Student Roster & Password Management State - Instant load from cache (0ms)
@@ -143,14 +147,56 @@ export const AdminDashboardView: React.FC = () => {
     }, 1200);
   };
 
-  const totalStudents = submissions.length;
-  const completedStudents = submissions.filter(s => s.isCompleted || s.totalStamps === 8).length;
+  // Merge full student roster with cloud submissions so all enrolled students appear instantly with their current progress
+  const mergedSubmissionsList: StudentSubmission[] = useMemo(() => {
+    const subMap = new Map<string, StudentSubmission>();
+    submissions.forEach((s) => subMap.set(s.studentId, s));
 
-  const filteredSubmissions = submissions.filter((s) => {
+    const result: StudentSubmission[] = [];
+    const seen = new Set<string>();
+
+    students.forEach((st) => {
+      seen.add(st.studentId);
+      const sub = subMap.get(st.studentId);
+      if (sub) {
+        result.push(sub);
+      } else {
+        result.push({
+          studentId: st.studentId,
+          studentName: st.name,
+          school: st.school || '담양여자중학교',
+          isCompleted: false,
+          totalStamps: 0,
+          updatedAt: st.createdAt || '',
+          workbookEntries: {},
+          weatherRecords: [],
+          dailyReflections: []
+        });
+      }
+    });
+
+    // Also include any submissions not in student roster
+    submissions.forEach((s) => {
+      if (!seen.has(s.studentId)) {
+        result.push(s);
+      }
+    });
+
+    return result;
+  }, [students, submissions]);
+
+  const totalStudents = mergedSubmissionsList.length;
+  const completedStudents = mergedSubmissionsList.filter(s => s.isCompleted || (s.totalStamps || 0) === 8).length;
+
+  const filteredSubmissions = mergedSubmissionsList.filter((s) => {
+    const stampCount = s.totalStamps || (Object.values(s.workbookEntries || {}) as any[]).filter(e => e.stampAcquired).length;
+    const isDone = s.isCompleted || stampCount === 8;
+    const hasStarted = stampCount > 0 || (Object.values(s.workbookEntries || {}) as any[]).some(e => e.reflectionText || Object.keys(e.curriculumResponses || {}).length > 0) || (s.dailyReflections && s.dailyReflections.some(r => r.memorableScene?.trim()));
+
     const matchesFilter =
       filterSchool === '전체' ||
-      (filterSchool === '완료(8스탬프)' && (s.isCompleted || s.totalStamps === 8)) ||
-      (filterSchool === '작성중' && !s.isCompleted && s.totalStamps < 8);
+      (filterSchool === '완료(8스탬프)' && isDone) ||
+      (filterSchool === '작성중' && !isDone && hasStarted);
     const matchesSearch = s.studentName.includes(searchTerm) || s.studentId.includes(searchTerm);
     return matchesFilter && matchesSearch;
   });
@@ -505,22 +551,26 @@ export const AdminDashboardView: React.FC = () => {
                     <th className="p-4 font-semibold">학번</th>
                     <th className="p-4 font-semibold">성명</th>
                     <th className="p-4 font-semibold">스탬프 획득</th>
-                    <th className="p-4 font-semibold">제출 상태</th>
-                    <th className="p-4 font-semibold">제출 시각</th>
+                    <th className="p-4 font-semibold">성찰일지 (4일간)</th>
+                    <th className="p-4 font-semibold">제출/작성 상태</th>
+                    <th className="p-4 font-semibold">동기화 시각</th>
                     <th className="p-4 font-semibold text-right">상세 검토</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
                   {filteredSubmissions.length === 0 ? (
                     <tr>
-                      <td colSpan={7} className="p-8 text-center text-slate-500">
-                        {loadingSubmissions ? '클라우드 데이터 불러오는 중...' : '등록된 학생 제출 내역이 없습니다. (위 시뮬레이션 버튼으로 테스트해 보세요)'}
+                      <td colSpan={8} className="p-8 text-center text-slate-500">
+                        {loadingSubmissions ? '클라우드 데이터 불러오는 중...' : '등록된 학생 제출 내역이 없습니다.'}
                       </td>
                     </tr>
                   ) : (
                     filteredSubmissions.map((sub) => {
                       const stampCount = sub.totalStamps || (Object.values(sub.workbookEntries || {}) as any[]).filter(e => e.stampAcquired).length;
                       const isDone = sub.isCompleted || stampCount === 8;
+                      const reflectionCount = (sub.dailyReflections || []).filter(
+                        (r) => r.memorableScene?.trim() || r.biggestEmotion?.trim() || r.newlyLearned?.trim()
+                      ).length;
 
                       return (
                         <tr key={sub.studentId} className="hover:bg-slate-50 transition">
@@ -532,20 +582,38 @@ export const AdminDashboardView: React.FC = () => {
                               <span className={`px-2 py-0.5 rounded-full font-mono font-bold text-[11px] ${
                                 stampCount === 8
                                   ? 'bg-emerald-100 text-emerald-800 border border-emerald-200'
-                                  : 'bg-slate-100 text-slate-600 border border-slate-200'
+                                  : stampCount > 0
+                                  ? 'bg-emerald-50 text-emerald-700 border border-emerald-100'
+                                  : 'bg-slate-100 text-slate-500 border border-slate-200'
                               }`}>
                                 {stampCount} / 8
                               </span>
                             </div>
                           </td>
                           <td className="p-4">
+                            <span className={`px-2 py-0.5 rounded-full font-mono font-bold text-[11px] inline-flex items-center gap-1 ${
+                              reflectionCount >= 4
+                                ? 'bg-purple-100 text-purple-800 border border-purple-200'
+                                : reflectionCount > 0
+                                ? 'bg-indigo-50 text-indigo-700 border border-indigo-200'
+                                : 'bg-slate-100 text-slate-400 border border-slate-200'
+                            }`}>
+                              <BookHeart className="w-3 h-3 text-purple-600" />
+                              {reflectionCount} / 4일
+                            </span>
+                          </td>
+                          <td className="p-4">
                             {isDone ? (
                               <span className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-800 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-md">
                                 <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" /> 최종 제출완료
                               </span>
-                            ) : (
+                            ) : stampCount > 0 || reflectionCount > 0 ? (
                               <span className="inline-flex items-center gap-1 text-[11px] text-amber-800 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-md">
                                 작성 중
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center gap-1 text-[11px] text-slate-500 bg-slate-100 border border-slate-200 px-2 py-0.5 rounded-md">
+                                미작성
                               </span>
                             )}
                           </td>
@@ -554,11 +622,14 @@ export const AdminDashboardView: React.FC = () => {
                           </td>
                           <td className="p-4 text-right">
                             <button
-                              onClick={() => setSelectedStudent(sub)}
-                              className="px-3 py-1.5 rounded-xl bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 text-emerald-800 text-xs font-bold transition inline-flex items-center gap-1 shadow-2xs"
+                              onClick={() => {
+                                setSelectedStudent(sub);
+                                setModalTab('workbook');
+                              }}
+                              className="px-3 py-1.5 rounded-xl bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 text-emerald-800 text-xs font-bold transition inline-flex items-center gap-1.5 shadow-2xs"
                             >
                               <Eye className="w-3.5 h-3.5 text-emerald-600" />
-                              <span>워크북 검토</span>
+                              <span>워크북 & 성찰일지 검토</span>
                             </button>
                           </td>
                         </tr>
@@ -886,9 +957,9 @@ export const AdminDashboardView: React.FC = () => {
             {/* Modal Header */}
             <div className="p-6 bg-slate-50 border-b border-slate-200 flex items-center justify-between">
               <div>
-                <span className="text-xs text-emerald-700 font-mono font-bold">담양여자중학교 학생 워크북 뷰어</span>
+                <span className="text-xs text-emerald-700 font-mono font-bold">담양여자중학교 학생 워크북 & 성찰일지 뷰어</span>
                 <h3 className="text-xl font-bold text-slate-900 mt-0.5 flex items-center gap-2">
-                  <span>{selectedStudent.studentName} 학생 워크북</span>
+                  <span>{selectedStudent.studentName} 학생 종합 기록부</span>
                   <span className="text-xs font-normal text-slate-500">({selectedStudent.school} • {selectedStudent.studentId})</span>
                 </h3>
               </div>
@@ -900,76 +971,273 @@ export const AdminDashboardView: React.FC = () => {
               </button>
             </div>
 
+            {/* Modal Section Switcher Tabs */}
+            <div className="flex border-b border-slate-200 bg-slate-100/70 px-6 gap-2">
+              <button
+                type="button"
+                onClick={() => setModalTab('workbook')}
+                className={`py-3 px-4 text-xs font-bold flex items-center gap-2 border-b-2 transition ${
+                  modalTab === 'workbook'
+                    ? 'border-emerald-600 text-emerald-800 bg-white rounded-t-xl shadow-2xs'
+                    : 'border-transparent text-slate-500 hover:text-slate-800'
+                }`}
+              >
+                <Award className="w-3.5 h-3.5 text-emerald-600" />
+                <span>8대 방문지 워크북 & 스탬프 ({selectedStudent.totalStamps || 0}/8)</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setModalTab('reflections')}
+                className={`py-3 px-4 text-xs font-bold flex items-center gap-2 border-b-2 transition ${
+                  modalTab === 'reflections'
+                    ? 'border-purple-600 text-purple-900 bg-white rounded-t-xl shadow-2xs'
+                    : 'border-transparent text-slate-500 hover:text-slate-800'
+                }`}
+              >
+                <BookHeart className="w-3.5 h-3.5 text-purple-600" />
+                <span>오늘의 성찰일지 (4일간)</span>
+                <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-purple-100 text-purple-800 font-mono font-bold">
+                  {(selectedStudent.dailyReflections || []).filter(r => r.memorableScene?.trim()).length}/4
+                </span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setModalTab('weather')}
+                className={`py-3 px-4 text-xs font-bold flex items-center gap-2 border-b-2 transition ${
+                  modalTab === 'weather'
+                    ? 'border-blue-600 text-blue-900 bg-white rounded-t-xl shadow-2xs'
+                    : 'border-transparent text-slate-500 hover:text-slate-800'
+                }`}
+              >
+                <CloudSun className="w-3.5 h-3.5 text-blue-600" />
+                <span>상하이 기후 조사</span>
+              </button>
+            </div>
+
             {/* Modal Scrollable Body */}
             <div className="p-6 overflow-y-auto space-y-6 flex-1 text-xs">
               
-              {/* 8 Places Photos & Stamps Grid */}
-              <div>
-                <h4 className="text-sm font-bold text-slate-900 mb-3 flex items-center gap-2">
-                  <Award className="w-4 h-4 text-emerald-600" />
-                  <span>8대 방문지 인증 사진 및 현장 스탬프</span>
-                </h4>
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                  {PLACES_DATA.map((p) => {
-                    const entry = selectedStudent.workbookEntries?.[p.id];
-                    return (
-                      <div key={p.id} className="p-3 rounded-2xl bg-slate-50 border border-slate-200 space-y-2">
-                        <div className="font-bold text-slate-800 truncate">{p.name}</div>
-                        <div className="h-28 w-full rounded-xl overflow-hidden bg-slate-200 relative">
-                          {entry?.photoUrl ? (
-                            <img src={entry.photoUrl} alt={p.name} className="w-full h-full object-cover" />
-                          ) : (
-                            <div className="w-full h-full flex items-center justify-center text-slate-400 text-[10px]">
-                              미등록
+              {/* TAB 1: WORKBOOK & STAMPS */}
+              {modalTab === 'workbook' && (
+                <>
+                  {/* 8 Places Photos & Stamps Grid */}
+                  <div>
+                    <h4 className="text-sm font-bold text-slate-900 mb-3 flex items-center gap-2">
+                      <Award className="w-4 h-4 text-emerald-600" />
+                      <span>8대 방문지 인증 사진 및 현장 스탬프</span>
+                    </h4>
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                      {PLACES_DATA.map((p) => {
+                        const entry = selectedStudent.workbookEntries?.[p.id];
+                        return (
+                          <div key={p.id} className="p-3 rounded-2xl bg-slate-50 border border-slate-200 space-y-2">
+                            <div className="font-bold text-slate-800 truncate" title={p.name}>{p.name}</div>
+                            <div className="h-28 w-full rounded-xl overflow-hidden bg-slate-200 relative">
+                              {entry?.photoUrl ? (
+                                <img src={entry.photoUrl} alt={p.name} className="w-full h-full object-cover" />
+                              ) : (
+                                <div className="w-full h-full flex items-center justify-center text-slate-400 text-[10px]">
+                                  미등록
+                                </div>
+                              )}
+                              {entry?.stampAcquired && (
+                                <div className="absolute bottom-1 right-1 px-1.5 py-0.5 rounded-md bg-rose-600 text-white font-bold text-[8px]">
+                                  스탬프✓
+                                </div>
+                              )}
                             </div>
-                          )}
-                          {entry?.stampAcquired && (
-                            <div className="absolute bottom-1 right-1 px-1.5 py-0.5 rounded-md bg-rose-600 text-white font-bold text-[8px]">
-                              스탬프✓
+                            <div className="text-[10px] text-slate-600 truncate">
+                              {entry?.stampAcquired ? `스탬프 완료 (${entry.stampedAt || '인증'})` : '스탬프 미인증'}
                             </div>
-                          )}
-                        </div>
-                        <div className="text-[10px] text-slate-600 truncate">
-                          {entry?.stampAcquired ? `스탬프 완료 (${entry.stampedAt || '인증'})` : '스탬프 미인증'}
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
 
-              {/* Curriculum Subject Exploration Review */}
-              <div>
-                <h4 className="text-sm font-bold text-slate-900 mb-3 flex items-center gap-2">
-                  <FileSpreadsheet className="w-4 h-4 text-emerald-600" />
-                  <span>8대 방문지 교과연계 탐구 기록 검토</span>
-                </h4>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                  {PLACES_DATA.map((p) => {
-                    const entry = selectedStudent.workbookEntries?.[p.id];
+                  {/* Curriculum Subject Exploration Review */}
+                  <div>
+                    <h4 className="text-sm font-bold text-slate-900 mb-3 flex items-center gap-2">
+                      <FileSpreadsheet className="w-4 h-4 text-emerald-600" />
+                      <span>8대 방문지 교과연계 탐구 기록 검토</span>
+                    </h4>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                      {PLACES_DATA.map((p) => {
+                        const entry = selectedStudent.workbookEntries?.[p.id];
+                        return (
+                          <div key={p.id} className="p-3.5 rounded-2xl bg-slate-50 border border-slate-200 space-y-2">
+                            <div className="font-bold text-slate-900 text-xs flex items-center justify-between">
+                              <span title={p.name}>{p.name}</span>
+                              <span className="text-[10px] text-slate-500 font-mono">{p.dayLabel}</span>
+                            </div>
+                            <div className="space-y-1.5">
+                              {p.curriculumLinks.map((link, cIdx) => {
+                                const respKey = `${link.subject}_${cIdx}`;
+                                const ans = entry?.curriculumResponses?.[respKey] || '';
+                                return (
+                                  <div key={cIdx} className="text-[11px] bg-white p-2 rounded-xl border border-slate-200/60">
+                                    <span className="font-bold text-emerald-800">[{link.subject}] {link.title}</span>
+                                    <p className="text-slate-700 mt-0.5 leading-relaxed">{ans || '(답변 미작성)'}</p>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </>
+              )}
+
+              {/* TAB 2: DAILY REFLECTIONS (오늘의 성찰일지 4일간) */}
+              {modalTab === 'reflections' && (
+                <div className="space-y-4">
+                  <div className="p-4 bg-purple-50/70 rounded-2xl border border-purple-200 flex items-center justify-between">
+                    <div>
+                      <h4 className="font-bold text-purple-950 text-sm flex items-center gap-2">
+                        <BookHeart className="w-4 h-4 text-purple-600" />
+                        <span>학생 일자별 성찰일지 (제1일차 ~ 제4일차) 검토</span>
+                      </h4>
+                      <p className="text-purple-700 text-[11px] mt-0.5">
+                        학생이 상하이 탐방 현장에서 매일 일과를 마친 후 작성한 생각과 느낀 점을 검토합니다.
+                      </p>
+                    </div>
+                  </div>
+
+                  {[1, 2, 3, 4].map((dayNum) => {
+                    const dayLabels: Record<number, { date: string; title: string; route: string }> = {
+                      1: { date: '2026. 10. 13 (화)', title: '담양 출정 & 상하이 심장부 입성', route: '인천공항 ➔ 상하이 푸둥 ➔ 남경로 보행가 ➔ 마시청 서커스 ➔ 외탄 야경' },
+                      2: { date: '2026. 10. 14 (수)', title: '불멸의 독립운동 성지와 역사의 숨결', route: '루쉰공원(매헌기념관) ➔ 상하이 임시정부청사 ➔ 영사관 ➔ 동방명주 ➔ 예원' },
+                      3: { date: '2026. 10. 15 (목)', title: '미래 첨단 과학과 글로벌 문화 콘텐츠', route: '상하이 과학기술관 ➔ 상하이 디즈니랜드 매직 킹덤 & 불꽃놀이' },
+                      4: { date: '2026. 10. 16 (금)', title: '글로벌 리더의 다짐 & 담양 귀환', route: '상하이 푸둥공항 출국 ➔ 인천공항 ➔ 담양 귀환 및 해단식' }
+                    };
+
+                    const dayInfo = dayLabels[dayNum];
+                    const ref = (selectedStudent.dailyReflections || []).find(r => r.day === dayNum);
+                    const isWritten = !!(ref?.memorableScene?.trim() || ref?.biggestEmotion?.trim() || ref?.newlyLearned?.trim());
+
                     return (
-                      <div key={p.id} className="p-3.5 rounded-2xl bg-slate-50 border border-slate-200 space-y-2">
-                        <div className="font-bold text-slate-900 text-xs flex items-center justify-between">
-                          <span>{p.name}</span>
-                          <span className="text-[10px] text-slate-500 font-mono">{p.dayLabel}</span>
+                      <div key={dayNum} className="p-4 sm:p-5 rounded-3xl bg-slate-50 border border-slate-200 space-y-3">
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1 pb-2 border-b border-slate-200">
+                          <div className="flex items-center gap-2">
+                            <span className="px-2.5 py-1 rounded-xl bg-purple-100 text-purple-900 font-mono font-bold text-xs">
+                              DAY {dayNum}
+                            </span>
+                            <span className="font-bold text-slate-900 text-sm">{dayInfo.title}</span>
+                            <span className="text-slate-500 text-[11px] font-mono">({dayInfo.date})</span>
+                          </div>
+                          <div>
+                            {isWritten ? (
+                              <span className="px-2.5 py-0.5 rounded-full bg-emerald-100 text-emerald-800 font-bold text-[10px] inline-flex items-center gap-1">
+                                <CheckCircle2 className="w-3 h-3 text-emerald-600" /> 성찰일지 작성완료
+                              </span>
+                            ) : (
+                              <span className="px-2.5 py-0.5 rounded-full bg-slate-200 text-slate-600 font-bold text-[10px]">
+                                미작성
+                              </span>
+                            )}
+                          </div>
                         </div>
-                        <div className="space-y-1.5">
-                          {p.curriculumLinks.map((link, cIdx) => {
-                            const respKey = `${link.subject}_${cIdx}`;
-                            const ans = entry?.curriculumResponses?.[respKey] || '';
-                            return (
-                              <div key={cIdx} className="text-[11px] bg-white p-2 rounded-xl border border-slate-200/60">
-                                <span className="font-bold text-emerald-800">[{link.subject}] {link.title}</span>
-                                <p className="text-slate-700 mt-0.5 leading-relaxed">{ans || '(답변 미작성)'}</p>
-                              </div>
-                            );
-                          })}
+
+                        <div className="text-[11px] text-slate-500 font-medium">
+                          📍 주요 여정: {dayInfo.route}
+                        </div>
+
+                        <div className="grid grid-cols-1 gap-3 pt-1">
+                          {/* 1. Memorable Scene */}
+                          <div className="p-3.5 rounded-2xl bg-white border border-slate-200/80 space-y-1">
+                            <div className="font-bold text-slate-800 flex items-center gap-1.5 text-xs text-purple-900">
+                              <span>📸</span>
+                              <span>오늘 가장 기억에 남는 장면이나 장소</span>
+                            </div>
+                            <p className="text-slate-700 leading-relaxed whitespace-pre-wrap pl-5 text-[11px]">
+                              {ref?.memorableScene?.trim() || <span className="text-slate-400 italic">(학생이 아직 내용을 작성하지 않았습니다)</span>}
+                            </p>
+                          </div>
+
+                          {/* 2. Biggest Emotion */}
+                          <div className="p-3.5 rounded-2xl bg-white border border-slate-200/80 space-y-1">
+                            <div className="font-bold text-slate-800 flex items-center gap-1.5 text-xs text-rose-900">
+                              <span>💖</span>
+                              <span>오늘 느낀 가장 큰 감정이나 생각</span>
+                            </div>
+                            <p className="text-slate-700 leading-relaxed whitespace-pre-wrap pl-5 text-[11px]">
+                              {ref?.biggestEmotion?.trim() || <span className="text-slate-400 italic">(학생이 아직 내용을 작성하지 않았습니다)</span>}
+                            </p>
+                          </div>
+
+                          {/* 3. Newly Learned */}
+                          <div className="p-3.5 rounded-2xl bg-white border border-slate-200/80 space-y-1">
+                            <div className="font-bold text-slate-800 flex items-center gap-1.5 text-xs text-amber-900">
+                              <span>💡</span>
+                              <span>오늘 새롭게 알게 되거나 깨달은 점</span>
+                            </div>
+                            <p className="text-slate-700 leading-relaxed whitespace-pre-wrap pl-5 text-[11px]">
+                              {ref?.newlyLearned?.trim() || <span className="text-slate-400 italic">(학생이 아직 내용을 작성하지 않았습니다)</span>}
+                            </p>
+                          </div>
                         </div>
                       </div>
                     );
                   })}
                 </div>
-              </div>
+              )}
+
+              {/* TAB 3: WEATHER INVESTIGATION */}
+              {modalTab === 'weather' && (
+                <div className="space-y-4">
+                  <div className="p-4 bg-blue-50/70 rounded-2xl border border-blue-200">
+                    <h4 className="font-bold text-blue-950 text-sm flex items-center gap-2">
+                      <CloudSun className="w-4 h-4 text-blue-600" />
+                      <span>학생 4일간 상하이 기후 및 기상 탐구 기록</span>
+                    </h4>
+                    <p className="text-blue-700 text-[11px] mt-0.5">
+                      탐방 기간 동안 학생이 조사하고 기록한 상하이 날씨, 기온, 습도 및 탐구 내용입니다.
+                    </p>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    {(selectedStudent.weatherRecords && selectedStudent.weatherRecords.length > 0
+                      ? selectedStudent.weatherRecords
+                      : INITIAL_WEATHER_RECORDS
+                    ).map((w, idx) => (
+                      <div key={idx} className="p-4 rounded-2xl bg-slate-50 border border-slate-200 space-y-2">
+                        <div className="flex items-center justify-between pb-1 border-b border-slate-200">
+                          <span className="font-bold text-slate-900">제{w.day}일차 ({w.date})</span>
+                          <span className="text-blue-700 font-mono font-bold">{w.city} • {w.forecast || '예보'}</span>
+                        </div>
+                        <div className="grid grid-cols-3 gap-1.5 text-center text-[10px]">
+                          <div className="p-1.5 bg-white rounded-lg border border-slate-200">
+                            <span className="text-slate-400 block">오전 기온</span>
+                            <span className="font-bold text-slate-800">{w.morningTemp}°C</span>
+                          </div>
+                          <div className="p-1.5 bg-white rounded-lg border border-slate-200">
+                            <span className="text-slate-400 block">오후 기온</span>
+                            <span className="font-bold text-slate-800">{w.afternoonTemp}°C</span>
+                          </div>
+                          <div className="p-1.5 bg-white rounded-lg border border-slate-200">
+                            <span className="text-slate-400 block">습도</span>
+                            <span className="font-bold text-slate-800">{w.humidity}%</span>
+                          </div>
+                        </div>
+                        {w.clothingNotes && (
+                          <div className="p-2 bg-white rounded-xl border border-slate-200 text-[11px]">
+                            <span className="font-bold text-slate-700">추천 복장: </span>
+                            <span className="text-slate-600">{w.clothingNotes}</span>
+                          </div>
+                        )}
+                        <div className="p-2 bg-white rounded-xl border border-slate-200 text-[11px]">
+                          <span className="font-bold text-slate-800 block mb-0.5">학생 기후 탐구 관찰 소감:</span>
+                          <p className="text-slate-600 leading-relaxed">
+                            {w.studentInvestigation || '(학생 탐구 기록 미작성)'}
+                          </p>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
 
             </div>
 
