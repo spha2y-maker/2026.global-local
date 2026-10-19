@@ -5,6 +5,7 @@ export interface StudentUser {
   school: string;
   role: 'student' | 'admin';
   createdAt?: string;
+  updatedAt?: string;
   lastLoginAt?: any;
 }
 

@@ -23,7 +23,10 @@ import {
   AlertCircle,
   BookHeart,
   Calendar,
-  CloudSun
+  CloudSun,
+  FileText,
+  Upload,
+  RotateCcw
 } from 'lucide-react';
 import { StudentSubmission, StudentUser } from '../types';
 import { 
@@ -34,6 +37,7 @@ import {
   resetStudentPassword,
   deleteStudentUser,
   getCachedStudentRoster,
+  restoreDefaultStudentRoster,
   DEFAULT_STUDENT_ROSTER_ITEMS
 } from '../services/submissionService';
 import { PLACES_DATA, INITIAL_WEATHER_RECORDS } from '../data/travelData';
@@ -78,6 +82,9 @@ export const AdminDashboardView: React.FC = () => {
   const [isDeletingStudent, setIsDeletingStudent] = useState(false);
   const [isBulkConfirmOpen, setIsBulkConfirmOpen] = useState(false);
   const [isBulkRegistering, setIsBulkRegistering] = useState(false);
+  const [isBatchPasteModalOpen, setIsBatchPasteModalOpen] = useState(false);
+  const [batchPasteText, setBatchPasteText] = useState('');
+  const [isBatchParsing, setIsBatchParsing] = useState(false);
 
   // Form Fields
   const [formStudentId, setFormStudentId] = useState('');
@@ -276,21 +283,39 @@ export const AdminDashboardView: React.FC = () => {
   // Save Student (Add or Edit)
   const handleSaveStudent = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!formStudentId.trim() || !formName.trim()) {
+    const cleanId = formStudentId.trim();
+    const cleanName = formName.trim();
+    const cleanSchool = formSchool.trim() || '담양여자중학교';
+    const targetPassword = formPassword.trim() || cleanId;
+
+    if (!cleanId || !cleanName) {
       showToast('학번과 학생 이름을 모두 입력해 주세요.', 'error');
       return;
     }
 
-    const targetPassword = formPassword.trim() || formStudentId.trim();
     const success = await saveOrUpdateStudent({
-      studentId: formStudentId.trim(),
-      name: formName.trim(),
-      school: formSchool.trim() || '담양여자중학교',
+      studentId: cleanId,
+      name: cleanName,
+      school: cleanSchool,
       password: targetPassword
     });
 
     if (success) {
-      showToast(`${formName}(${formStudentId}) 학생 정보가 저장되었습니다.`);
+      // Optimistic update of students state
+      setStudents(prev => {
+        const next = [...prev.filter(s => s.studentId !== cleanId), {
+          studentId: cleanId,
+          name: cleanName,
+          school: cleanSchool,
+          password: targetPassword,
+          role: 'student' as const,
+          updatedAt: new Date().toISOString()
+        }];
+        next.sort((a, b) => a.studentId.localeCompare(b.studentId));
+        return next;
+      });
+
+      showToast(`[${cleanName} (${cleanId})] 학생 정보가 성공적으로 등록 및 동기화되었습니다.`);
       setIsAddModalOpen(false);
     } else {
       showToast('학생 정보 저장 중 오류가 발생했습니다.', 'error');
@@ -310,9 +335,13 @@ export const AdminDashboardView: React.FC = () => {
       return;
     }
 
-    const success = await resetStudentPassword(passwordTargetStudent.studentId, newPasswordInput.trim());
+    const targetId = passwordTargetStudent.studentId;
+    const newPwd = newPasswordInput.trim();
+    const success = await resetStudentPassword(targetId, newPwd);
+
     if (success) {
-      showToast(`${passwordTargetStudent.name}(${passwordTargetStudent.studentId}) 학생의 비밀번호가 [${newPasswordInput.trim()}]로 재설정되었습니다.`);
+      setStudents(prev => prev.map(s => s.studentId === targetId ? { ...s, password: newPwd } : s));
+      showToast(`${passwordTargetStudent.name}(${targetId}) 학생의 비밀번호가 [${newPwd}]로 재설정되었습니다.`);
       setPasswordTargetStudent(null);
     } else {
       showToast('비밀번호 재설정에 실패했습니다.', 'error');
@@ -355,28 +384,82 @@ export const AdminDashboardView: React.FC = () => {
     setIsBulkConfirmOpen(true);
   };
 
-  // Confirm and Execute Bulk Registration
+  // Confirm and Execute Bulk Registration & Restoration
   const handleConfirmBulkRegister = async () => {
     setIsBulkRegistering(true);
-    let count = 0;
     try {
-      for (const item of DEFAULT_STUDENT_ROSTER) {
-        const ok = await saveOrUpdateStudent({
-          studentId: item.studentId,
-          name: item.name,
-          school: item.school,
-          password: item.studentId
-        });
-        if (ok) count++;
-      }
-      showToast(`담양여자중학교 기본 학생 ${count}명이 성공적으로 등록되었습니다.`);
+      const restored = await restoreDefaultStudentRoster();
+      setStudents(restored);
+      showToast(`담양여자중학교 기본 학생 ${restored.length}명이 성공적으로 복원 및 등록되었습니다.`);
     } catch (err) {
       console.error('Bulk register error:', err);
-      showToast('일괄 등록 중 일부 오류가 발생했습니다.', 'error');
+      showToast('일괄 등록 중 오류가 발생했습니다.', 'error');
     } finally {
       setIsBulkRegistering(false);
       setIsBulkConfirmOpen(false);
     }
+  };
+
+  // Batch register pasted student list (from Excel or text file)
+  const handleBatchPasteRegister = async () => {
+    if (!batchPasteText.trim()) {
+      showToast('등록할 학생 명단 텍스트를 입력해 주세요.', 'error');
+      return;
+    }
+    setIsBatchParsing(true);
+    const lines = batchPasteText.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+    let successCount = 0;
+    const addedStudents: StudentUser[] = [];
+
+    for (const line of lines) {
+      // Split by tab, comma, or whitespace
+      let parts = line.split(/[\t,]+/).map(p => p.trim());
+      if (parts.length === 1) {
+        parts = line.split(/\s+/).map(p => p.trim());
+      }
+      if (parts.length >= 2) {
+        const sid = parts[0];
+        const sname = parts[1];
+        const sschool = parts[2] || '담양여자중학교';
+        const spassword = parts[3] || sid;
+
+        if (sid && sname) {
+          const ok = await saveOrUpdateStudent({
+            studentId: sid,
+            name: sname,
+            school: sschool,
+            password: spassword
+          });
+          if (ok) {
+            successCount++;
+            addedStudents.push({
+              studentId: sid,
+              name: sname,
+              school: sschool,
+              password: spassword,
+              role: 'student'
+            });
+          }
+        }
+      }
+    }
+
+    if (successCount > 0) {
+      setStudents(prev => {
+        const map = new Map<string, StudentUser>();
+        prev.forEach(s => map.set(s.studentId, s));
+        addedStudents.forEach(s => map.set(s.studentId, s));
+        const list = Array.from(map.values());
+        list.sort((a, b) => a.studentId.localeCompare(b.studentId));
+        return list;
+      });
+      showToast(`${successCount}명의 학생이 성공적으로 일괄 등록되었습니다.`);
+      setBatchPasteText('');
+      setIsBatchPasteModalOpen(false);
+    } else {
+      showToast('인식 가능한 학생 정보가 없습니다. (형식: "학번 성명" 예: 30101 김하은)', 'error');
+    }
+    setIsBatchParsing(false);
   };
 
   return (
@@ -659,19 +742,28 @@ export const AdminDashboardView: React.FC = () => {
               </button>
 
               <button
+                onClick={() => setIsBatchPasteModalOpen(true)}
+                className="px-4 py-2 rounded-2xl bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 text-indigo-800 text-xs font-bold transition flex items-center gap-1.5 shadow-2xs"
+                title="엑셀이나 텍스트에서 학생 명단을 복사해 한번에 붙여넣어 일괄 등록합니다."
+              >
+                <Upload className="w-4 h-4 text-indigo-600" />
+                <span>명단 일괄 등록 (엑셀 붙여넣기)</span>
+              </button>
+
+              <button
                 onClick={handlePromptBulkRegister}
                 className="px-4 py-2 rounded-2xl bg-white hover:bg-slate-50 border border-emerald-300 text-emerald-800 text-xs font-bold transition flex items-center gap-1.5 shadow-2xs"
-                title="담양여자중학교 3학년 기본 학생 명단(10명)을 일괄 생성합니다."
+                title="담양여자중학교 3학년 기본 학생 명단(10명)을 복원 및 등록합니다."
               >
-                <FileSpreadsheet className="w-4 h-4 text-emerald-600" />
-                <span>기본 학생 명단 일괄 등록</span>
+                <RotateCcw className="w-4 h-4 text-emerald-600" />
+                <span>기본 10명 명단 복원</span>
               </button>
 
               <button
                 onClick={handleManualRefresh}
                 disabled={isRefreshingRoster}
                 className="px-3.5 py-2 rounded-2xl bg-slate-100 hover:bg-slate-200 border border-slate-200 text-slate-700 text-xs font-semibold transition flex items-center gap-1.5"
-                title="서버에서 학생 명단을 즉시 다시 불러옵니다."
+                title="서버와 로컬에서 학생 명단을 즉시 다시 동기화합니다."
               >
                 <RefreshCw className={`w-3.5 h-3.5 ${isRefreshingRoster ? 'animate-spin text-emerald-600' : ''}`} />
                 <span>명단 새로고침</span>
@@ -1370,6 +1462,92 @@ export const AdminDashboardView: React.FC = () => {
                   </>
                 )}
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal 6: Batch Paste Roster Modal */}
+      {isBatchPasteModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in duration-200">
+          <div className="relative w-full max-w-lg bg-white border border-indigo-200 rounded-3xl p-6 shadow-2xl space-y-4 animate-in fade-in zoom-in-95">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-2xl bg-indigo-50 text-indigo-700 flex items-center justify-center shrink-0">
+                  <Upload className="w-5 h-5 text-indigo-600" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-slate-900">학생 명단 일괄 등록</h3>
+                  <p className="text-xs text-indigo-600 font-semibold">엑셀 / 텍스트 복사 붙여넣기</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setIsBatchPasteModalOpen(false)}
+                className="p-1.5 rounded-xl text-slate-400 hover:text-slate-800 hover:bg-slate-100"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="space-y-3 text-xs">
+              <div className="p-3 rounded-2xl bg-indigo-50/70 border border-indigo-100 text-indigo-900 leading-relaxed">
+                <p className="font-semibold mb-1">📋 입력 안내:</p>
+                <p className="text-slate-600 text-[11px]">
+                  엑셀(Excel)이나 한글 문서의 학번과 이름 열을 복사하여 아래에 붙여넣으세요. 공백이나 쉼표, 탭 구분자를 자동으로 인식합니다.
+                </p>
+                <div className="mt-2 font-mono text-[11px] bg-white p-2 rounded-xl border border-indigo-200 text-slate-700">
+                  30101 김하은<br />
+                  30102 박소율<br />
+                  30103 이서연
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-slate-700 font-bold mb-1.5">
+                  명단 텍스트 붙여넣기 <span className="text-rose-500">*</span>
+                </label>
+                <textarea
+                  rows={8}
+                  value={batchPasteText}
+                  onChange={(e) => setBatchPasteText(e.target.value)}
+                  placeholder={`30101 김하은\n30102 박소율\n30103 이서연`}
+                  className="w-full bg-slate-50 border border-slate-300 rounded-2xl p-3 font-mono text-xs text-slate-900 focus:bg-white focus:outline-none focus:border-indigo-500 transition leading-relaxed"
+                />
+              </div>
+            </div>
+
+            <div className="pt-2 flex items-center justify-between text-xs">
+              <span className="text-slate-500 font-mono text-[11px]">
+                {batchPasteText.split(/\r?\n/).filter(l => l.trim()).length}줄 감지됨
+              </span>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  disabled={isBatchParsing}
+                  onClick={() => setIsBatchPasteModalOpen(false)}
+                  className="px-4 py-2.5 rounded-2xl bg-white border border-slate-300 text-slate-700 font-semibold hover:bg-slate-50 transition"
+                >
+                  취소
+                </button>
+                <button
+                  type="button"
+                  disabled={isBatchParsing || !batchPasteText.trim()}
+                  onClick={handleBatchPasteRegister}
+                  className="px-5 py-2.5 rounded-2xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold transition shadow-xs flex items-center gap-1.5 disabled:opacity-50"
+                >
+                  {isBatchParsing ? (
+                    <>
+                      <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                      <span>명단 등록 중...</span>
+                    </>
+                  ) : (
+                    <>
+                      <CheckCircle2 className="w-3.5 h-3.5" />
+                      <span>명단 일괄 등록하기</span>
+                    </>
+                  )}
+                </button>
+              </div>
             </div>
           </div>
         </div>

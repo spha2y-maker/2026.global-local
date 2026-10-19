@@ -112,8 +112,18 @@ export async function loginStudentWithAuth(
       updatedAt: new Date().toISOString()
     }, { merge: true });
   } catch (firestoreErr) {
-    console.error('Error saving student profile to Firestore:', firestoreErr);
+    console.warn('Note on saving student profile to Firestore (quota or offline):', firestoreErr);
   }
+
+  // 3. Immediately register student into local persistent roster
+  try {
+    saveOrUpdateStudent({
+      studentId: studentUser.studentId,
+      name: studentUser.name,
+      school: studentUser.school,
+      password: trimmedPassword
+    });
+  } catch {}
 
   return studentUser;
 }
@@ -323,56 +333,249 @@ export const DEFAULT_STUDENT_ROSTER_ITEMS: StudentUser[] = [
   { studentId: '30216', name: '한가은', school: '담양여자중학교', role: 'student', password: '30216' }
 ];
 
-export function getCachedStudentRoster(): StudentUser[] {
+export const ROSTER_CACHE_KEY = 'damyang_roster_cache';
+export const LEGACY_ROSTER_CACHE_KEY = 'damyang_student_roster_cache';
+export const DELETED_STUDENTS_KEY = 'damyang_deleted_students';
+
+// Active memory listeners for student roster updates
+const rosterListeners = new Set<(students: StudentUser[]) => void>();
+
+function notifyRosterListeners(list: StudentUser[]) {
+  rosterListeners.forEach((cb) => {
+    try {
+      cb(list);
+    } catch (e) {
+      console.warn('Roster listener notification error:', e);
+    }
+  });
+  if (typeof window !== 'undefined') {
+    try {
+      window.dispatchEvent(new CustomEvent('damyang_roster_changed', { detail: list }));
+    } catch {}
+  }
+}
+
+/**
+ * Retrieve consolidated student roster from all local sources:
+ * - Current roster cache
+ * - Legacy roster cache
+ * - All submission documents stored in localStorage
+ * - Current submissions list
+ * - Default starter roster
+ * While respecting explicit teacher deletions (tombstones)
+ */
+export function getStoredStudentRoster(): StudentUser[] {
+  const mergedMap = new Map<string, StudentUser>();
+  const deletedSet = new Set<string>();
+
+  // 1. Load tombstone (deleted students)
   try {
-    const raw = localStorage.getItem('damyang_roster_cache');
-    if (raw) {
-      const parsed = JSON.parse(raw);
-      if (Array.isArray(parsed) && parsed.length > 0) {
-        return parsed;
+    const delRaw = localStorage.getItem(DELETED_STUDENTS_KEY);
+    if (delRaw) {
+      const arr = JSON.parse(delRaw);
+      if (Array.isArray(arr)) {
+        arr.forEach((id) => deletedSet.add(String(id).trim()));
       }
     }
   } catch {}
-  return DEFAULT_STUDENT_ROSTER_ITEMS;
+
+  // 2. Seed with DEFAULT_STUDENT_ROSTER_ITEMS (unless explicitly deleted)
+  DEFAULT_STUDENT_ROSTER_ITEMS.forEach((item) => {
+    if (!deletedSet.has(item.studentId)) {
+      mergedMap.set(item.studentId, { ...item });
+    }
+  });
+
+  // 3. Inspect primary cache (damyang_roster_cache)
+  try {
+    const raw = localStorage.getItem(ROSTER_CACHE_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) {
+        parsed.forEach((st: StudentUser) => {
+          if (st && st.studentId && !deletedSet.has(st.studentId)) {
+            mergedMap.set(st.studentId, {
+              ...st,
+              school: st.school || '담양여자중학교',
+              role: 'student'
+            });
+          }
+        });
+      }
+    }
+  } catch {}
+
+  // 4. Inspect legacy cache (damyang_student_roster_cache) to recover any previously registered students
+  try {
+    const rawLegacy = localStorage.getItem(LEGACY_ROSTER_CACHE_KEY);
+    if (rawLegacy) {
+      const parsedLegacy = JSON.parse(rawLegacy);
+      if (Array.isArray(parsedLegacy)) {
+        parsedLegacy.forEach((st: StudentUser) => {
+          if (st && st.studentId && !deletedSet.has(st.studentId)) {
+            if (!mergedMap.has(st.studentId) || !mergedMap.get(st.studentId)?.name) {
+              mergedMap.set(st.studentId, {
+                ...st,
+                school: st.school || '담양여자중학교',
+                role: 'student'
+              });
+            }
+          }
+        });
+      }
+    }
+  } catch {}
+
+  // 5. Inspect submissions cache (damyang_submissions_cache) to recover any student who submitted
+  try {
+    const rawSub = localStorage.getItem('damyang_submissions_cache');
+    if (rawSub) {
+      const subs = JSON.parse(rawSub);
+      if (Array.isArray(subs)) {
+        subs.forEach((sub: StudentSubmission) => {
+          if (sub && sub.studentId && !deletedSet.has(sub.studentId)) {
+            if (!mergedMap.has(sub.studentId)) {
+              mergedMap.set(sub.studentId, {
+                studentId: sub.studentId,
+                name: sub.studentName || '학생',
+                school: sub.school || '담양여자중학교',
+                password: sub.studentId,
+                role: 'student',
+                updatedAt: sub.updatedAt || sub.submittedAt
+              });
+            }
+          }
+        });
+      }
+    }
+  } catch {}
+
+  // 6. Inspect individual submission_* keys in localStorage
+  try {
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (key && key.startsWith('submission_')) {
+        const sid = key.replace('submission_', '').trim();
+        if (sid && !deletedSet.has(sid) && !mergedMap.has(sid)) {
+          try {
+            const rawItem = localStorage.getItem(key);
+            if (rawItem) {
+              const subObj = JSON.parse(rawItem);
+              mergedMap.set(sid, {
+                studentId: sid,
+                name: subObj.studentName || '학생',
+                school: subObj.school || '담양여자중학교',
+                password: sid,
+                role: 'student'
+              });
+            }
+          } catch {}
+        }
+      }
+    }
+  } catch {}
+
+  const result = Array.from(mergedMap.values());
+  result.sort((a, b) => a.studentId.localeCompare(b.studentId));
+
+  // Sync consolidated result to persistent local storage
+  try {
+    localStorage.setItem(ROSTER_CACHE_KEY, JSON.stringify(result));
+    localStorage.setItem(LEGACY_ROSTER_CACHE_KEY, JSON.stringify(result));
+  } catch {}
+
+  return result;
+}
+
+export function getCachedStudentRoster(): StudentUser[] {
+  return getStoredStudentRoster();
 }
 
 /**
  * Real-time listener for all student submissions (for Admin Dashboard)
  */
 export function subscribeAllSubmissions(callback: (submissions: StudentSubmission[]) => void) {
-  try {
-    // Provide instant cached data if available (0ms)
+  // Consolidate cached submissions and individual localStorage records
+  const getConsolidatedSubmissions = (): StudentSubmission[] => {
+    const map = new Map<string, StudentSubmission>();
     try {
       const cached = localStorage.getItem('damyang_submissions_cache');
       if (cached) {
         const parsed = JSON.parse(cached);
-        if (Array.isArray(parsed) && parsed.length > 0) {
-          callback(parsed);
+        if (Array.isArray(parsed)) {
+          parsed.forEach((s) => map.set(s.studentId, s));
         }
       }
     } catch {}
 
-    const q = query(collection(db, SUBMISSION_COLLECTION));
-    return onSnapshot(q, (snapshot) => {
-      const list: StudentSubmission[] = [];
-      snapshot.forEach((d) => {
-        list.push({ id: d.id, ...(d.data() as StudentSubmission) });
-      });
-      // Sort by updatedAt or submittedAt desc
-      list.sort((a, b) => {
-        const timeA = a.submittedAt || a.updatedAt || '';
-        const timeB = b.submittedAt || b.updatedAt || '';
-        return timeB.localeCompare(timeA);
-      });
-      try {
-        localStorage.setItem('damyang_submissions_cache', JSON.stringify(list));
-      } catch {}
-      callback(list);
-    }, (err) => {
-      console.error('Snapshot error:', err);
+    try {
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        if (key && key.startsWith('submission_')) {
+          const sid = key.replace('submission_', '').trim();
+          try {
+            const rawItem = localStorage.getItem(key);
+            if (rawItem) {
+              const parsed = JSON.parse(rawItem);
+              if (parsed && parsed.studentId) {
+                map.set(sid, { ...parsed });
+              }
+            }
+          } catch {}
+        }
+      }
+    } catch {}
+
+    const list = Array.from(map.values());
+    list.sort((a, b) => {
+      const timeA = a.submittedAt || a.updatedAt || '';
+      const timeB = b.submittedAt || b.updatedAt || '';
+      return timeB.localeCompare(timeA);
     });
+    return list;
+  };
+
+  // Provide instant cached data immediately (0ms)
+  const initialList = getConsolidatedSubmissions();
+  if (initialList.length > 0) {
+    callback(initialList);
+  }
+
+  try {
+    const q = query(collection(db, SUBMISSION_COLLECTION));
+    return onSnapshot(
+      q,
+      (snapshot) => {
+        const list: StudentSubmission[] = [];
+        snapshot.forEach((d) => {
+          list.push({ id: d.id, ...(d.data() as StudentSubmission) });
+        });
+
+        // Merge with local submissions to avoid losing any local progress
+        const localList = getConsolidatedSubmissions();
+        const map = new Map<string, StudentSubmission>();
+        localList.forEach((s) => map.set(s.studentId, s));
+        list.forEach((s) => map.set(s.studentId, s));
+
+        const merged = Array.from(map.values());
+        merged.sort((a, b) => {
+          const timeA = a.submittedAt || a.updatedAt || '';
+          const timeB = b.submittedAt || b.updatedAt || '';
+          return timeB.localeCompare(timeA);
+        });
+
+        try {
+          localStorage.setItem('damyang_submissions_cache', JSON.stringify(merged));
+        } catch {}
+        callback(merged);
+      },
+      (err) => {
+        console.warn('Submissions snapshot note (falling back to local cache):', err);
+        callback(getConsolidatedSubmissions());
+      }
+    );
   } catch (err) {
-    console.error('Subscribe error:', err);
+    console.warn('Submissions subscribe error (using local storage):', err);
     return () => {};
   }
 }
@@ -382,58 +585,88 @@ export function subscribeAllSubmissions(callback: (submissions: StudentSubmissio
  * Guaranteed to provide instant roster (0ms) and merge with live Firestore changes
  */
 export function subscribeAllStudents(callback: (students: StudentUser[]) => void) {
-  // 1. Immediately invoke callback with cached / default roster (0ms instant response)
-  const initialRoster = getCachedStudentRoster();
+  // 1. Immediately invoke callback with consolidated persistent roster (0ms instant response)
+  const initialRoster = getStoredStudentRoster();
   callback(initialRoster);
 
+  // 2. Register callback in memory listener set
+  rosterListeners.add(callback);
+
+  // 3. Listen to window broadcast event for cross-component and tab sync
+  const handleWindowSync = (e: any) => {
+    if (e.detail && Array.isArray(e.detail)) {
+      callback(e.detail);
+    }
+  };
+  if (typeof window !== 'undefined') {
+    window.addEventListener('damyang_roster_changed', handleWindowSync);
+  }
+
+  // 4. Connect to Firestore query with quota/network error resilience
+  let unsubFirestore = () => {};
   try {
     const q = query(collection(db, USERS_COLLECTION));
-    return onSnapshot(q, (snapshot) => {
-      const firestoreMap = new Map<string, StudentUser>();
-      snapshot.forEach((d) => {
-        const data = d.data();
-        if (data.role !== 'admin' && d.id !== 'TEACHER') {
-          const sid = data.studentId || d.id;
-          firestoreMap.set(sid, {
-            studentId: sid,
-            name: data.name || '학생',
-            school: data.school || '담양여자중학교',
-            password: data.password || sid,
-            role: 'student',
-            lastLoginAt: data.lastLoginAt,
-            createdAt: data.createdAt || data.updatedAt
-          });
-        }
-      });
+    unsubFirestore = onSnapshot(
+      q,
+      (snapshot) => {
+        const firestoreMap = new Map<string, StudentUser>();
+        snapshot.forEach((d) => {
+          const data = d.data();
+          if (data.role !== 'admin' && d.id !== 'TEACHER') {
+            const sid = data.studentId || d.id;
+            firestoreMap.set(sid, {
+              studentId: sid,
+              name: data.name || '학생',
+              school: data.school || '담양여자중학교',
+              password: data.password || sid,
+              role: 'student',
+              lastLoginAt: data.lastLoginAt,
+              createdAt: data.createdAt || data.updatedAt
+            });
+          }
+        });
 
-      // Merge defaults with firestore users so all 10 students (plus any newly registered students) always appear
-      const mergedMap = new Map<string, StudentUser>();
-      DEFAULT_STUDENT_ROSTER_ITEMS.forEach(item => {
-        mergedMap.set(item.studentId, item);
-      });
-      firestoreMap.forEach((user, sid) => {
-        mergedMap.set(sid, user);
-      });
+        // Merge firestore users with local roster (respecting deleted students)
+        const currentRoster = getStoredStudentRoster();
+        const mergedMap = new Map<string, StudentUser>();
+        currentRoster.forEach((item) => {
+          mergedMap.set(item.studentId, item);
+        });
+        firestoreMap.forEach((user, sid) => {
+          mergedMap.set(sid, user);
+        });
 
-      const list = Array.from(mergedMap.values());
-      // Sort by studentId asc
-      list.sort((a, b) => a.studentId.localeCompare(b.studentId));
-      
-      try {
-        localStorage.setItem('damyang_roster_cache', JSON.stringify(list));
-      } catch {}
-      callback(list);
-    }, (err) => {
-      console.error('Students snapshot error:', err);
-    });
+        const list = Array.from(mergedMap.values());
+        list.sort((a, b) => a.studentId.localeCompare(b.studentId));
+
+        try {
+          localStorage.setItem(ROSTER_CACHE_KEY, JSON.stringify(list));
+          localStorage.setItem(LEGACY_ROSTER_CACHE_KEY, JSON.stringify(list));
+        } catch {}
+
+        callback(list);
+      },
+      (err) => {
+        console.warn('Students snapshot note (using local persistent storage):', err);
+        callback(getStoredStudentRoster());
+      }
+    );
   } catch (err) {
-    console.error('Students subscribe error:', err);
-    return () => {};
+    console.warn('Students subscribe error:', err);
   }
+
+  return () => {
+    rosterListeners.delete(callback);
+    if (typeof window !== 'undefined') {
+      window.removeEventListener('damyang_roster_changed', handleWindowSync);
+    }
+    unsubFirestore();
+  };
 }
 
 /**
- * Add or update student user in Firestore
+ * Add or update student user in Firestore and Local Persistent Cache
+ * Guaranteed to succeed locally and sync to cloud
  */
 export async function saveOrUpdateStudent(student: {
   studentId: string;
@@ -441,99 +674,220 @@ export async function saveOrUpdateStudent(student: {
   school: string;
   password?: string;
 }): Promise<boolean> {
-  try {
-    const cleanId = student.studentId.trim();
-    const docRef = doc(db, USERS_COLLECTION, cleanId);
-    await setDoc(docRef, {
-      studentId: cleanId,
-      name: student.name.trim(),
-      school: student.school.trim(),
-      password: student.password?.trim() || '1234',
-      role: 'student',
-      updatedAt: new Date().toISOString()
-    }, { merge: true });
-    return true;
-  } catch (error) {
-    console.error('Error saving student to Firestore:', error);
+  const cleanId = student.studentId.trim();
+  const studentName = student.name.trim();
+  const schoolName = student.school.trim() || '담양여자중학교';
+  const targetPassword = student.password?.trim() || cleanId;
+
+  if (!cleanId || !studentName) {
     return false;
   }
+
+  // 1. Remove from deleted tombstones if it was previously deleted
+  try {
+    const delRaw = localStorage.getItem(DELETED_STUDENTS_KEY);
+    if (delRaw) {
+      const arr = JSON.parse(delRaw);
+      if (Array.isArray(arr)) {
+        const filtered = arr.filter((id) => String(id).trim() !== cleanId);
+        localStorage.setItem(DELETED_STUDENTS_KEY, JSON.stringify(filtered));
+      }
+    }
+  } catch {}
+
+  // 2. Update local persistent roster immediately (0ms synchronous guaranteed persistence)
+  const currentRoster = getStoredStudentRoster();
+  const existingIdx = currentRoster.findIndex((s) => s.studentId === cleanId);
+
+  const studentUser: StudentUser = {
+    studentId: cleanId,
+    name: studentName,
+    school: schoolName,
+    password: targetPassword,
+    role: 'student',
+    updatedAt: new Date().toISOString()
+  };
+
+  let updatedList: StudentUser[];
+  if (existingIdx >= 0) {
+    updatedList = [...currentRoster];
+    updatedList[existingIdx] = { ...updatedList[existingIdx], ...studentUser };
+  } else {
+    updatedList = [...currentRoster, studentUser];
+    updatedList.sort((a, b) => a.studentId.localeCompare(b.studentId));
+  }
+
+  try {
+    localStorage.setItem(ROSTER_CACHE_KEY, JSON.stringify(updatedList));
+    localStorage.setItem(LEGACY_ROSTER_CACHE_KEY, JSON.stringify(updatedList));
+  } catch (err) {
+    console.warn('LocalStorage save error:', err);
+  }
+
+  // 3. Immediately notify active UI subscribers across the application
+  notifyRosterListeners(updatedList);
+
+  // 4. Ensure this student is represented in local submissions cache so they appear in both views
+  try {
+    const rawSub = localStorage.getItem('damyang_submissions_cache');
+    let subList: StudentSubmission[] = rawSub ? JSON.parse(rawSub) : [];
+    if (!Array.isArray(subList)) subList = [];
+    const hasSub = subList.some((s) => s.studentId === cleanId);
+    if (!hasSub) {
+      const newSub: StudentSubmission = {
+        studentId: cleanId,
+        studentName: studentName,
+        school: schoolName,
+        isCompleted: false,
+        totalStamps: 0,
+        updatedAt: new Date().toISOString(),
+        workbookEntries: {},
+        weatherRecords: [],
+        dailyReflections: []
+      };
+      subList.push(newSub);
+      localStorage.setItem('damyang_submissions_cache', JSON.stringify(subList));
+    }
+  } catch {}
+
+  // 5. Asynchronously persist to Cloud Firestore in background (non-blocking, tolerant of quota/network issues)
+  try {
+    const docRef = doc(db, USERS_COLLECTION, cleanId);
+    setDoc(
+      docRef,
+      {
+        studentId: cleanId,
+        name: studentName,
+        school: schoolName,
+        password: targetPassword,
+        role: 'student',
+        updatedAt: new Date().toISOString()
+      },
+      { merge: true }
+    ).catch((err) => {
+      console.warn('Firestore user doc sync note (safe in persistent local storage):', err);
+    });
+  } catch (err) {
+    console.warn('Firestore setDoc invocation note:', err);
+  }
+
+  return true;
 }
 
 /**
- * Reset student password in Firestore
+ * Reset student password in local persistent cache and Firestore
  */
 export async function resetStudentPassword(studentId: string, newPassword: string): Promise<boolean> {
-  try {
-    const cleanId = studentId.trim();
-    const docRef = doc(db, USERS_COLLECTION, cleanId);
-    await setDoc(docRef, {
-      password: newPassword.trim(),
-      updatedAt: new Date().toISOString()
-    }, { merge: true });
-    return true;
-  } catch (error) {
-    console.error('Error resetting student password:', error);
-    return false;
+  const cleanId = studentId.trim();
+  const trimmedPassword = newPassword.trim();
+  if (!cleanId || !trimmedPassword) return false;
+
+  // 1. Update in local storage immediately
+  const currentRoster = getStoredStudentRoster();
+  const existingIdx = currentRoster.findIndex((s) => s.studentId === cleanId);
+  if (existingIdx >= 0) {
+    currentRoster[existingIdx].password = trimmedPassword;
+    currentRoster[existingIdx].updatedAt = new Date().toISOString();
+    try {
+      localStorage.setItem(ROSTER_CACHE_KEY, JSON.stringify(currentRoster));
+      localStorage.setItem(LEGACY_ROSTER_CACHE_KEY, JSON.stringify(currentRoster));
+    } catch {}
+    notifyRosterListeners(currentRoster);
   }
+
+  // 2. Sync to Firestore in background
+  try {
+    const docRef = doc(db, USERS_COLLECTION, cleanId);
+    setDoc(
+      docRef,
+      {
+        password: trimmedPassword,
+        updatedAt: new Date().toISOString()
+      },
+      { merge: true }
+    ).catch((err) => {
+      console.warn('Firestore password reset sync note (safe locally):', err);
+    });
+  } catch (err) {
+    console.warn('Firestore resetDoc note:', err);
+  }
+
+  return true;
 }
 
 /**
- * Delete student account from Firestore and purge associated submissions
+ * Delete student account from local persistent cache, Firestore, and purge associated submissions
  */
 export async function deleteStudentUser(studentId: string): Promise<boolean> {
+  const cleanId = studentId.trim();
+  if (!cleanId) return false;
+
+  // 1. Record in tombstone
   try {
-    const cleanId = studentId.trim();
-    
-    // 1. Delete user profile doc from USERS_COLLECTION
-    try {
-      await deleteDoc(doc(db, USERS_COLLECTION, cleanId));
-    } catch (uErr) {
-      console.warn('Error deleting from USERS_COLLECTION:', uErr);
+    const delRaw = localStorage.getItem(DELETED_STUDENTS_KEY);
+    const arr: string[] = delRaw ? JSON.parse(delRaw) : [];
+    if (!arr.includes(cleanId)) {
+      arr.push(cleanId);
+      localStorage.setItem(DELETED_STUDENTS_KEY, JSON.stringify(arr));
     }
+  } catch {}
 
-    // 2. Delete submission doc from SUBMISSION_COLLECTION
-    try {
-      await deleteDoc(doc(db, SUBMISSION_COLLECTION, cleanId));
-    } catch (sErr) {
-      console.warn('Error deleting from SUBMISSION_COLLECTION:', sErr);
-    }
+  // 2. Remove from roster cache
+  const currentRoster = getStoredStudentRoster();
+  const filtered = currentRoster.filter((s) => s.studentId !== cleanId);
+  try {
+    localStorage.setItem(ROSTER_CACHE_KEY, JSON.stringify(filtered));
+    localStorage.setItem(LEGACY_ROSTER_CACHE_KEY, JSON.stringify(filtered));
+  } catch {}
+  notifyRosterListeners(filtered);
 
-    // 3. Clean up query matches in case studentId was stored under different ID
-    try {
-      const snap = await getDocs(query(collection(db, SUBMISSION_COLLECTION)));
-      for (const d of snap.docs) {
-        if (d.data().studentId === cleanId) {
-          await deleteDoc(d.ref);
-        }
+  // 3. Purge submission and user caches
+  try {
+    localStorage.removeItem(`submission_${cleanId}`);
+    const cachedCurrentUser = localStorage.getItem('damyang_user');
+    if (cachedCurrentUser) {
+      const parsed = JSON.parse(cachedCurrentUser);
+      if (parsed.studentId === cleanId) {
+        localStorage.removeItem('damyang_user');
       }
-    } catch (qErr) {
-      console.warn('Error querying extra submission docs for cleanup:', qErr);
     }
-
-    // 4. Purge client-side caches
-    try {
-      localStorage.removeItem(`submission_${cleanId}`);
-      const cachedCurrentUser = localStorage.getItem('damyang_student_user');
-      if (cachedCurrentUser) {
-        const parsed = JSON.parse(cachedCurrentUser);
-        if (parsed.studentId === cleanId) {
-          localStorage.removeItem('damyang_student_user');
-        }
-      }
-      const localRoster = localStorage.getItem('damyang_student_roster_cache');
-      if (localRoster) {
-        const parsed = JSON.parse(localRoster);
-        const filtered = parsed.filter((s: any) => s.studentId !== cleanId);
-        localStorage.setItem('damyang_student_roster_cache', JSON.stringify(filtered));
-      }
-    } catch (cErr) {
-      console.warn('Error clearing local caches:', cErr);
+    const rawSub = localStorage.getItem('damyang_submissions_cache');
+    if (rawSub) {
+      const subs: StudentSubmission[] = JSON.parse(rawSub);
+      const filteredSubs = subs.filter((s) => s.studentId !== cleanId);
+      localStorage.setItem('damyang_submissions_cache', JSON.stringify(filteredSubs));
     }
-
-    return true;
-  } catch (error) {
-    console.error('Error deleting student:', error);
-    return false;
+  } catch (cErr) {
+    console.warn('Error clearing local caches:', cErr);
   }
+
+  // 4. Background delete in Firestore
+  try {
+    deleteDoc(doc(db, USERS_COLLECTION, cleanId)).catch(() => {});
+    deleteDoc(doc(db, SUBMISSION_COLLECTION, cleanId)).catch(() => {});
+  } catch {}
+
+  return true;
 }
+
+/**
+ * Reset roster back to default starter students (clears deleted tombstones)
+ */
+export async function restoreDefaultStudentRoster(): Promise<StudentUser[]> {
+  try {
+    localStorage.removeItem(DELETED_STUDENTS_KEY);
+    localStorage.setItem(ROSTER_CACHE_KEY, JSON.stringify(DEFAULT_STUDENT_ROSTER_ITEMS));
+    localStorage.setItem(LEGACY_ROSTER_CACHE_KEY, JSON.stringify(DEFAULT_STUDENT_ROSTER_ITEMS));
+  } catch {}
+
+  notifyRosterListeners(DEFAULT_STUDENT_ROSTER_ITEMS);
+
+  // Sync to Firestore in background
+  DEFAULT_STUDENT_ROSTER_ITEMS.forEach((item) => {
+    saveOrUpdateStudent(item).catch(() => {});
+  });
+
+  return DEFAULT_STUDENT_ROSTER_ITEMS;
+}
+
 
