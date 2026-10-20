@@ -47,14 +47,23 @@
 }
 
 @media print {
-  body {
+  @page {
+    size: A4 landscape;
+    margin: 0;
+  }
+
+  html, body {
+    width: 297mm !important;
+    height: 210mm !important;
+    margin: 0 !important;
+    padding: 0 !important;
     background-color: #ffffff !important;
-    color: #111827 !important;
+    color: #0f172a !important;
     -webkit-print-color-adjust: exact !important;
     print-color-adjust: exact !important;
   }
 
-  header, nav, button, .print\:hidden {
+  header, nav, button, footer, .print\:hidden {
     display: none !important;
   }
 
@@ -65,5 +74,28 @@
   .break-inside-avoid {
     break-inside: avoid;
     page-break-inside: avoid;
+  }
+
+  .ppt-slide-page {
+    width: 297mm !important;
+    height: 210mm !important;
+    min-width: 297mm !important;
+    min-height: 210mm !important;
+    max-width: 297mm !important;
+    max-height: 210mm !important;
+    page-break-after: always !important;
+    break-after: page !important;
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+    box-sizing: border-box !important;
+    overflow: hidden !important;
+    position: relative !important;
+    margin: 0 !important;
+    background: #ffffff !important;
+  }
+
+  .ppt-slide-page:last-child {
+    page-break-after: avoid !important;
+    break-after: avoid !important;
   }
 }
