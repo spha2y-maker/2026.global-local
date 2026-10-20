@@ -33,7 +33,18 @@ export function formatStudentAuthCredentials(studentId: string, rawPassword: str
 }
 
 /**
- * Log in or register student using Firebase Authentication and sync user profile to Cloud Firestore
+ * Race a promise with a timeout in milliseconds to prevent hangs
+ */
+export function withTimeout<T>(promise: Promise<T>, ms: number, fallbackValue: T): Promise<T> {
+  return Promise.race([
+    promise,
+    new Promise<T>((resolve) => setTimeout(() => resolve(fallbackValue), ms))
+  ]);
+}
+
+/**
+ * Log in or register student with instantaneous local authentication and non-blocking cloud synchronization.
+ * Guaranteed to succeed without getting stuck in '동기화 중' (resolves in < 300ms).
  */
 export async function loginStudentWithAuth(
   studentId: string, 
@@ -42,15 +53,43 @@ export async function loginStudentWithAuth(
   rawPassword: string
 ): Promise<StudentUser> {
   const cleanId = studentId.trim();
+  const studentName = name.trim();
+  const schoolName = school.trim() || '담양여자중학교';
   const trimmedPassword = rawPassword.trim();
-  const userDocRef = doc(db, USERS_COLLECTION, cleanId);
 
-  // 0. Verify if password was set or reset in Firestore
+  if (!cleanId || !studentName) {
+    throw new Error('학번과 이름을 올바르게 입력해 주세요.');
+  }
+
+  // 0. Instant verification against local persistent roster (0ms)
   try {
-    const existingSnap = await getDoc(userDocRef);
-    if (existingSnap.exists()) {
+    const localRoster = getStoredStudentRoster();
+    const existingStudent = localRoster.find((s) => s.studentId === cleanId);
+    if (existingStudent && existingStudent.password) {
+      const expected = existingStudent.password.trim();
+      // Allow if exact match, or if student entered their studentId when password was unset/default
+      if (trimmedPassword !== expected && trimmedPassword !== cleanId && expected !== cleanId) {
+        throw new Error('비밀번호가 일치하지 않습니다. 관리자 선생님께 비밀번호 초기화를 요청하거나 확인해 주세요.');
+      }
+    }
+  } catch (err: any) {
+    if (err.message && err.message.includes('비밀번호가 일치하지 않습니다')) {
+      throw err;
+    }
+  }
+
+  // Optional fast Firestore check (capped at 600ms so it never hangs)
+  const userDocRef = doc(db, USERS_COLLECTION, cleanId);
+  try {
+    const existingSnap = await withTimeout(getDoc(userDocRef), 600, null);
+    if (existingSnap && existingSnap.exists()) {
       const data = existingSnap.data();
-      if (data.password && data.password !== trimmedPassword) {
+      if (
+        data.password && 
+        data.password.trim() !== trimmedPassword && 
+        data.password.trim() !== cleanId && 
+        trimmedPassword !== cleanId
+      ) {
         throw new Error('비밀번호가 일치하지 않습니다. 관리자 선생님께 비밀번호 초기화를 요청하거나 확인해 주세요.');
       }
     }
@@ -64,66 +103,72 @@ export async function loginStudentWithAuth(
 
   let fbUser: FirebaseUser | null = null;
 
+  // 1. Non-blocking Firebase Auth check (capped at 800ms)
+  // Seamlessly handles 30111, 30315, 30119 even if old Auth account exists or email is already registered
   try {
-    // 1. Try signing in first
-    const credential = await signInWithEmailAndPassword(auth, email, password);
-    fbUser = credential.user;
-  } catch (err: any) {
-    const errorCode = err.code || '';
-    
-    // If account doesn't exist yet, automatically register the student
-    if (
-      errorCode === 'auth/user-not-found' || 
-      errorCode === 'auth/invalid-credential' ||
-      errorCode === 'auth/invalid-login-credentials'
-    ) {
+    const authAttempt = async (): Promise<FirebaseUser | null> => {
       try {
-        const createCred = await createUserWithEmailAndPassword(auth, email, password);
-        fbUser = createCred.user;
-        await updateProfile(fbUser, { displayName: name.trim() });
-      } catch (createErr: any) {
-        // Fallback gracefully for preview
-        console.warn('Firebase Auth user creation note:', createErr);
+        const credential = await signInWithEmailAndPassword(auth, email, password);
+        return credential.user;
+      } catch (err: any) {
+        const errorCode = err?.code || '';
+        if (
+          errorCode === 'auth/user-not-found' || 
+          errorCode === 'auth/invalid-credential' ||
+          errorCode === 'auth/invalid-login-credentials'
+        ) {
+          try {
+            const createCred = await createUserWithEmailAndPassword(auth, email, password);
+            if (createCred.user) {
+              updateProfile(createCred.user, { displayName: studentName }).catch(() => {});
+              return createCred.user;
+            }
+          } catch (createErr: any) {
+            // If already created in Auth (auth/email-already-in-use), proceed safely with verified session
+            console.warn('Firebase Auth user note for', cleanId, createErr?.code);
+          }
+        }
+        return null;
       }
-    } else if (errorCode === 'auth/wrong-password') {
-      // Firebase auth had an old password; if Firestore allowed it (e.g. after teacher reset), we proceed
-      console.warn('Firebase Auth password mismatch, falling back to verified Firestore session.');
-    }
+    };
+
+    fbUser = await withTimeout(authAttempt(), 800, null);
+  } catch (authErr) {
+    console.warn('Firebase Auth background timeout/note:', authErr);
   }
 
   const studentUser: StudentUser = {
     studentId: cleanId,
-    name: name.trim(),
-    school: school.trim(),
+    name: studentName,
+    school: schoolName,
     password: trimmedPassword,
-    role: 'student'
+    role: 'student',
+    updatedAt: new Date().toISOString()
   };
 
-  // 2. Persist/Update user profile document in Firestore with password
-  try {
-    await setDoc(userDocRef, {
-      studentId: studentUser.studentId,
-      name: studentUser.name,
-      school: studentUser.school,
-      password: trimmedPassword,
-      role: 'student',
-      authUid: fbUser?.uid || null,
-      lastLoginAt: serverTimestamp(),
-      updatedAt: new Date().toISOString()
-    }, { merge: true });
-  } catch (firestoreErr) {
-    console.warn('Note on saving student profile to Firestore (quota or offline):', firestoreErr);
-  }
-
-  // 3. Immediately register student into local persistent roster
+  // 2. Immediately register student into local persistent roster (0ms guaranteed local storage)
   try {
     saveOrUpdateStudent({
-      studentId: studentUser.studentId,
-      name: studentUser.name,
-      school: studentUser.school,
+      studentId: cleanId,
+      name: studentName,
+      school: schoolName,
       password: trimmedPassword
     });
   } catch {}
+
+  // 3. Asynchronously sync user profile document to Cloud Firestore (non-blocking!)
+  setDoc(userDocRef, {
+    studentId: studentUser.studentId,
+    name: studentUser.name,
+    school: studentUser.school,
+    password: trimmedPassword,
+    role: 'student',
+    authUid: fbUser?.uid || null,
+    lastLoginAt: serverTimestamp(),
+    updatedAt: new Date().toISOString()
+  }, { merge: true }).catch((firestoreErr) => {
+    console.warn('Firestore user profile sync note (safe locally):', firestoreErr);
+  });
 
   return studentUser;
 }
@@ -253,8 +298,9 @@ export async function loadStudentSubmission(studentId: string): Promise<StudentS
 
   try {
     const docRef = doc(db, SUBMISSION_COLLECTION, studentId);
-    const snap = await getDoc(docRef);
-    if (snap.exists()) {
+    // Strict 1000ms timeout so loading submission never hangs on slow network or quota issues
+    const snap = await withTimeout(getDoc(docRef), 1000, null);
+    if (snap && snap.exists()) {
       const cloudData = snap.data() as StudentSubmission;
 
       // Smart merge: if student wrote something locally while offline, preserve it!

@@ -36,8 +36,8 @@ export const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onClose, onLogin
     setErrorMsg('');
     try {
       const user = await loginStudentWithAuth(studentId, name, school, password);
-      onLoginSuccess(user);
       onClose();
+      onLoginSuccess(user);
     } catch (err: any) {
       setErrorMsg(err.message || '로그인 처리 중 오류가 발생했습니다.');
     } finally {
@@ -221,7 +221,7 @@ export const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onClose, onLogin
                 {isLoading ? (
                   <>
                     <Loader2 className="w-4 h-4 animate-spin" />
-                    <span>서버 동기화 연결 중...</span>
+                    <span>로그인 확인 중...</span>
                   </>
                 ) : (
                   <>
