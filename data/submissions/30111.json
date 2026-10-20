@@ -1,0 +1,22 @@
+{
+  "studentId": "30111",
+  "studentName": "김민서",
+  "school": "담양여자중학교",
+  "workbookEntries": {
+    "p1": {
+      "placeId": "p1",
+      "reflectionText": "모바일에서 작성한 소감문입니다.",
+      "stampAcquired": true
+    }
+  },
+  "dailyReflections": [
+    {
+      "day": 1,
+      "memorableScene": "상하이 임시정부 청사 방문",
+      "biggestEmotion": "감동",
+      "newlyLearned": "역사"
+    }
+  ],
+  "totalStamps": 1,
+  "isCompleted": false
+}

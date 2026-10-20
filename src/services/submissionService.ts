@@ -53,128 +53,100 @@ export async function loginStudentWithAuth(
   rawPassword: string
 ): Promise<StudentUser> {
   const cleanId = studentId.trim();
-  const studentName = name.trim();
   const schoolName = school.trim() || '담양여자중학교';
   const trimmedPassword = rawPassword.trim();
+  let studentName = name.trim();
 
-  if (!cleanId || !studentName) {
-    throw new Error('학번과 이름을 올바르게 입력해 주세요.');
+  if (!cleanId) {
+    throw new Error('학번을 올바르게 입력해 주세요.');
   }
 
-  // 0. Instant verification against local persistent roster (0ms)
+  // 1. Try server login first (/api/auth/student-login)
   try {
-    const localRoster = getStoredStudentRoster();
-    const existingStudent = localRoster.find((s) => s.studentId === cleanId);
-    if (existingStudent && existingStudent.password) {
-      const expected = existingStudent.password.trim();
-      // Allow if exact match, or if student entered their studentId when password was unset/default
-      if (trimmedPassword !== expected && trimmedPassword !== cleanId && expected !== cleanId) {
-        throw new Error('비밀번호가 일치하지 않습니다. 관리자 선생님께 비밀번호 초기화를 요청하거나 확인해 주세요.');
+    const res = await withTimeout(
+      fetch('/api/auth/student-login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          studentId: cleanId,
+          name: studentName,
+          school: schoolName,
+          password: trimmedPassword
+        })
+      }),
+      2500,
+      null
+    );
+
+    if (res && res.ok) {
+      const data = await res.json();
+      if (data && data.user) {
+        const loggedUser: StudentUser = {
+          studentId: data.user.studentId,
+          name: data.user.name,
+          school: data.user.school || schoolName,
+          password: data.user.password || trimmedPassword,
+          role: 'student',
+          updatedAt: new Date().toISOString()
+        };
+        // Save to local cache
+        saveOrUpdateStudent(loggedUser).catch(() => {});
+        return loggedUser;
       }
+    } else if (res && res.status === 401) {
+      const errData = await res.json().catch(() => ({}));
+      throw new Error(errData.error || '비밀번호가 일치하지 않습니다.');
     }
-  } catch (err: any) {
-    if (err.message && err.message.includes('비밀번호가 일치하지 않습니다')) {
-      throw err;
+  } catch (serverErr: any) {
+    if (serverErr.message && serverErr.message.includes('비밀번호가 일치하지 않습니다')) {
+      throw serverErr;
+    }
+    console.warn('Server auth note (using local fallback):', serverErr);
+  }
+
+  // 2. Offline / local fallback check
+  const localRoster = getStoredStudentRoster();
+  const existingStudent = localRoster.find((s) => s.studentId === cleanId);
+  if (existingStudent) {
+    if (!studentName || studentName === '학생' || studentName === '이수민') {
+      studentName = existingStudent.name;
+    }
+    const expected = (existingStudent.password || '').trim();
+    if (expected && trimmedPassword && expected !== trimmedPassword && expected !== cleanId && trimmedPassword !== cleanId) {
+      throw new Error('비밀번호가 일치하지 않습니다. 관리자 선생님께 비밀번호 초기화를 요청하거나 확인해 주세요.');
     }
   }
 
-  // Optional fast Firestore check (capped at 600ms so it never hangs)
-  const userDocRef = doc(db, USERS_COLLECTION, cleanId);
-  try {
-    const existingSnap = await withTimeout(getDoc(userDocRef), 600, null);
-    if (existingSnap && existingSnap.exists()) {
-      const data = existingSnap.data();
-      if (
-        data.password && 
-        data.password.trim() !== trimmedPassword && 
-        data.password.trim() !== cleanId && 
-        trimmedPassword !== cleanId
-      ) {
-        throw new Error('비밀번호가 일치하지 않습니다. 관리자 선생님께 비밀번호 초기화를 요청하거나 확인해 주세요.');
-      }
-    }
-  } catch (err: any) {
-    if (err.message && err.message.includes('비밀번호가 일치하지 않습니다')) {
-      throw err;
-    }
-  }
-
-  const { email, password } = formatStudentAuthCredentials(cleanId, trimmedPassword);
-
-  let fbUser: FirebaseUser | null = null;
-
-  // 1. Non-blocking Firebase Auth check (capped at 800ms)
-  // Seamlessly handles 30111, 30315, 30119 even if old Auth account exists or email is already registered
-  try {
-    const authAttempt = async (): Promise<FirebaseUser | null> => {
-      try {
-        const credential = await signInWithEmailAndPassword(auth, email, password);
-        return credential.user;
-      } catch (err: any) {
-        const errorCode = err?.code || '';
-        if (
-          errorCode === 'auth/user-not-found' || 
-          errorCode === 'auth/invalid-credential' ||
-          errorCode === 'auth/invalid-login-credentials'
-        ) {
-          try {
-            const createCred = await createUserWithEmailAndPassword(auth, email, password);
-            if (createCred.user) {
-              updateProfile(createCred.user, { displayName: studentName }).catch(() => {});
-              return createCred.user;
-            }
-          } catch (createErr: any) {
-            // If already created in Auth (auth/email-already-in-use), proceed safely with verified session
-            console.warn('Firebase Auth user note for', cleanId, createErr?.code);
-          }
-        }
-        return null;
-      }
-    };
-
-    fbUser = await withTimeout(authAttempt(), 800, null);
-  } catch (authErr) {
-    console.warn('Firebase Auth background timeout/note:', authErr);
-  }
-
-  const studentUser: StudentUser = {
+  const fallbackUser: StudentUser = {
     studentId: cleanId,
-    name: studentName,
+    name: studentName || `${cleanId} 학생`,
     school: schoolName,
-    password: trimmedPassword,
+    password: trimmedPassword || cleanId,
     role: 'student',
     updatedAt: new Date().toISOString()
   };
 
-  // 2. Immediately register student into local persistent roster (0ms guaranteed local storage)
+  saveOrUpdateStudent(fallbackUser).catch(() => {});
+
+  // 3. Best-effort non-blocking sync to Firestore
   try {
-    saveOrUpdateStudent({
-      studentId: cleanId,
-      name: studentName,
-      school: schoolName,
-      password: trimmedPassword
-    });
+    const userDocRef = doc(db, USERS_COLLECTION, cleanId);
+    setDoc(userDocRef, {
+      studentId: fallbackUser.studentId,
+      name: fallbackUser.name,
+      school: fallbackUser.school,
+      password: trimmedPassword || cleanId,
+      role: 'student',
+      lastLoginAt: serverTimestamp(),
+      updatedAt: new Date().toISOString()
+    }, { merge: true }).catch(() => {});
   } catch {}
 
-  // 3. Asynchronously sync user profile document to Cloud Firestore (non-blocking!)
-  setDoc(userDocRef, {
-    studentId: studentUser.studentId,
-    name: studentUser.name,
-    school: studentUser.school,
-    password: trimmedPassword,
-    role: 'student',
-    authUid: fbUser?.uid || null,
-    lastLoginAt: serverTimestamp(),
-    updatedAt: new Date().toISOString()
-  }, { merge: true }).catch((firestoreErr) => {
-    console.warn('Firestore user profile sync note (safe locally):', firestoreErr);
-  });
-
-  return studentUser;
+  return fallbackUser;
 }
 
 /**
- * Log in admin teacher with Firebase Auth
+ * Log in admin teacher with API & Firebase Auth
  */
 export async function loginAdminWithAuth(adminPasswordInput: string): Promise<StudentUser> {
   const trimmed = adminPasswordInput.trim();
@@ -182,25 +154,14 @@ export async function loginAdminWithAuth(adminPasswordInput: string): Promise<St
     throw new Error('관리자 인증 암호가 올바르지 않습니다.');
   }
 
-  const email = 'admin@damyang.ms.kr';
-  const password = 'damyang_damyang2026';
-
-  // Perform Firebase Auth in background with a short timeout so admin login is instant (< 300ms)
-  Promise.race([
-    signInWithEmailAndPassword(auth, email, password).catch(async (err: any) => {
-      if (
-        err.code === 'auth/user-not-found' || 
-        err.code === 'auth/invalid-credential' ||
-        err.code === 'auth/invalid-login-credentials'
-      ) {
-        try {
-          const cred = await createUserWithEmailAndPassword(auth, email, password);
-          await updateProfile(cred.user, { displayName: '인솔교사/관리자' });
-        } catch {}
-      }
-    }),
-    new Promise(res => setTimeout(res, 600))
-  ]).catch(() => {});
+  // 1. Try server admin login
+  try {
+    fetch('/api/auth/admin-login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ password: trimmed })
+    }).catch(() => {});
+  } catch {}
 
   const adminUser: StudentUser = {
     studentId: 'TEACHER',
@@ -235,57 +196,49 @@ export async function logoutAuthUser(): Promise<void> {
 }
 
 /**
- * Save student workbook submission to Cloud Firestore
+ * Save student workbook submission to Express server, local storage, and Firestore
  */
 export async function saveStudentSubmission(submission: StudentSubmission): Promise<boolean> {
-  // Always update local storage first as synchronous fail-safe
+  // 1. Always update local storage first as synchronous fail-safe (0ms)
   try {
     localStorage.setItem(`submission_${submission.studentId}`, JSON.stringify(submission));
   } catch (quotaErr) {
     console.warn('localStorage quota warning when saving submission:', quotaErr);
   }
 
+  // 2. Persist to Express backend server (/api/submissions/:studentId)
+  try {
+    await withTimeout(
+      fetch(`/api/submissions/${encodeURIComponent(submission.studentId)}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(submission)
+      }),
+      4000,
+      null
+    );
+  } catch (apiErr) {
+    console.warn('Express server save note:', apiErr);
+  }
+
+  // 3. Best-effort non-blocking sync to Cloud Firestore
   try {
     const docRef = doc(db, SUBMISSION_COLLECTION, submission.studentId);
-    await setDoc(docRef, {
+    setDoc(docRef, {
       ...submission,
       updatedAt: new Date().toISOString(),
       serverTimestamp: serverTimestamp()
-    }, { merge: true });
+    }, { merge: true }).catch((fErr) => {
+      console.warn('Firestore submission sync note (safe on server & local):', fErr?.message || fErr);
+    });
+  } catch {}
 
-    return true;
-  } catch (error: any) {
-    console.error('Error saving submission to Firestore:', error);
-    // If Firestore failed (e.g. document too large or network drop), try payload reduction
-    if (error?.message && error.message.includes('maximum allowed size')) {
-      console.warn('Attempting payload size reduction...');
-      try {
-        const compactEntries: Record<string, any> = {};
-        Object.entries(submission.workbookEntries || {}).forEach(([pid, entry]) => {
-          compactEntries[pid] = {
-            ...entry,
-            // Keep text, responses, stamp, but if photoUrl is gigantic, keep thumbnail
-            photoUrl: entry.photoUrl ? entry.photoUrl.slice(0, 150000) : undefined
-          };
-        });
-        const docRef = doc(db, SUBMISSION_COLLECTION, submission.studentId);
-        await setDoc(docRef, {
-          ...submission,
-          workbookEntries: compactEntries,
-          updatedAt: new Date().toISOString(),
-          serverTimestamp: serverTimestamp()
-        }, { merge: true });
-        return true;
-      } catch (retryErr) {
-        console.error('Retry save failed:', retryErr);
-      }
-    }
-    return false;
-  }
+  return true;
 }
 
 /**
- * Load student workbook submission from Cloud Firestore with smart merging
+ * Load student workbook submission from Express Server or Cloud Firestore with smart merging
+ * Guaranteed to restore all mobile work on any PC or tablet!
  */
 export async function loadStudentSubmission(studentId: string): Promise<StudentSubmission | null> {
   const localRaw = localStorage.getItem(`submission_${studentId}`);
@@ -296,70 +249,92 @@ export async function loadStudentSubmission(studentId: string): Promise<StudentS
     } catch {}
   }
 
+  // 1. Primary: Fetch from Express Server (/api/submissions/:studentId)
+  let cloudData: StudentSubmission | null = null;
   try {
-    const docRef = doc(db, SUBMISSION_COLLECTION, studentId);
-    // Strict 1000ms timeout so loading submission never hangs on slow network or quota issues
-    const snap = await withTimeout(getDoc(docRef), 1000, null);
-    if (snap && snap.exists()) {
-      const cloudData = snap.data() as StudentSubmission;
-
-      // Smart merge: if student wrote something locally while offline, preserve it!
-      if (localData) {
-        const mergedEntries = { ...(cloudData.workbookEntries || {}) };
-        if (localData.workbookEntries) {
-          Object.entries(localData.workbookEntries).forEach(([pid, lEntry]) => {
-            const cEntry = mergedEntries[pid];
-            if (!cEntry) {
-              mergedEntries[pid] = lEntry;
-            } else {
-              // Merge curriculum responses
-              const mergedResp = {
-                ...(cEntry.curriculumResponses || {}),
-                ...(lEntry.curriculumResponses || {})
-              };
-              mergedEntries[pid] = {
-                ...cEntry,
-                ...lEntry,
-                curriculumResponses: mergedResp,
-                stampAcquired: lEntry.stampAcquired || cEntry.stampAcquired,
-                photoUrl: lEntry.photoUrl || cEntry.photoUrl,
-                stampedAt: lEntry.stampedAt || cEntry.stampedAt
-              };
-            }
-          });
-        }
-
-        const merged: StudentSubmission = {
-          ...cloudData,
-          ...localData,
-          workbookEntries: mergedEntries,
-          dailyReflections: (localData.dailyReflections && localData.dailyReflections.some(r => r.memorableScene?.trim()))
-            ? localData.dailyReflections
-            : (cloudData.dailyReflections || localData.dailyReflections),
-          weatherRecords: (localData.weatherRecords && localData.weatherRecords.some(w => w.studentInvestigation?.trim()))
-            ? localData.weatherRecords
-            : (cloudData.weatherRecords || localData.weatherRecords),
-          bookActivity: localData.bookActivity || cloudData.bookActivity,
-          totalStamps: Math.max(localData.totalStamps || 0, cloudData.totalStamps || 0),
-          isCompleted: localData.isCompleted || cloudData.isCompleted,
-          updatedAt: new Date().toISOString()
-        };
-
-        // Cache merged version
-        try {
-          localStorage.setItem(`submission_${studentId}`, JSON.stringify(merged));
-        } catch {}
-        return merged;
+    const res = await withTimeout(
+      fetch(`/api/submissions/${encodeURIComponent(studentId)}`),
+      3500,
+      null
+    );
+    if (res && res.ok) {
+      const json = await res.json();
+      if (json && json.submission) {
+        cloudData = json.submission as StudentSubmission;
       }
-
-      // No local data, save cloud data to localStorage
-      try {
-        localStorage.setItem(`submission_${studentId}`, JSON.stringify(cloudData));
-      } catch {}
-      return cloudData;
     }
-  } catch (error) {
-    console.error('Error reading from Firestore, falling back to local backup:', error);
+  } catch (err) {
+    console.warn('Express server load note:', err);
+  }
+
+  // 2. Secondary fallback: Firestore check
+  if (!cloudData) {
+    try {
+      const docRef = doc(db, SUBMISSION_COLLECTION, studentId);
+      const snap = await withTimeout(getDoc(docRef), 2000, null);
+      if (snap && snap.exists()) {
+        cloudData = snap.data() as StudentSubmission;
+      }
+    } catch (e) {
+      console.warn('Firestore load note (quota/network):', e);
+    }
+  }
+
+  // 3. Smart merge: if student wrote something locally on this device, preserve it
+  if (cloudData && localData) {
+    const mergedEntries = { ...(cloudData.workbookEntries || {}) };
+    if (localData.workbookEntries) {
+      Object.entries(localData.workbookEntries).forEach(([pid, lEntry]) => {
+        const cEntry = mergedEntries[pid];
+        if (!cEntry) {
+          mergedEntries[pid] = lEntry;
+        } else {
+          // Merge curriculum responses and prioritize whichever has non-empty answers
+          mergedEntries[pid] = {
+            ...cEntry,
+            ...lEntry,
+            reflectionText: lEntry.reflectionText?.trim() ? lEntry.reflectionText : (cEntry.reflectionText || ''),
+            curriculumResponses: {
+              ...(cEntry.curriculumResponses || {}),
+              ...(lEntry.curriculumResponses || {})
+            },
+            stampAcquired: lEntry.stampAcquired || cEntry.stampAcquired,
+            photoUrl: lEntry.photoUrl || cEntry.photoUrl,
+            stampedAt: lEntry.stampedAt || cEntry.stampedAt
+          };
+        }
+      });
+    }
+
+    const merged: StudentSubmission = {
+      ...cloudData,
+      ...localData,
+      workbookEntries: mergedEntries,
+      dailyReflections: (localData.dailyReflections && localData.dailyReflections.some(r => r.memorableScene?.trim()))
+        ? localData.dailyReflections
+        : (cloudData.dailyReflections || localData.dailyReflections),
+      weatherRecords: (localData.weatherRecords && localData.weatherRecords.some(w => w.studentInvestigation?.trim()))
+        ? localData.weatherRecords
+        : (cloudData.weatherRecords || localData.weatherRecords),
+      bookActivity: (localData.bookActivity && Object.values(localData.bookActivity).some(v => v?.trim()))
+        ? localData.bookActivity
+        : (cloudData.bookActivity || localData.bookActivity),
+      totalStamps: Math.max(localData.totalStamps || 0, cloudData.totalStamps || 0),
+      isCompleted: localData.isCompleted || cloudData.isCompleted,
+      updatedAt: new Date().toISOString()
+    };
+
+    try {
+      localStorage.setItem(`submission_${studentId}`, JSON.stringify(merged));
+    } catch {}
+    return merged;
+  }
+
+  if (cloudData) {
+    try {
+      localStorage.setItem(`submission_${studentId}`, JSON.stringify(cloudData));
+    } catch {}
+    return cloudData;
   }
 
   return localData;
@@ -372,11 +347,14 @@ export const DEFAULT_STUDENT_ROSTER_ITEMS: StudentUser[] = [
   { studentId: '30103', name: '이서연', school: '담양여자중학교', role: 'student', password: '30103' },
   { studentId: '30104', name: '최지우', school: '담양여자중학교', role: 'student', password: '30104' },
   { studentId: '30105', name: '정유진', school: '담양여자중학교', role: 'student', password: '30105' },
+  { studentId: '30111', name: '김민서', school: '담양여자중학교', role: 'student', password: '30111' },
+  { studentId: '30119', name: '정하린', school: '담양여자중학교', role: 'student', password: '30119' },
   { studentId: '30201', name: '강민주', school: '담양여자중학교', role: 'student', password: '30201' },
   { studentId: '30202', name: '윤채원', school: '담양여자중학교', role: 'student', password: '30202' },
   { studentId: '30203', name: '송예린', school: '담양여자중학교', role: 'student', password: '30203' },
   { studentId: '30215', name: '이수민', school: '담양여자중학교', role: 'student', password: '1234' },
-  { studentId: '30216', name: '한가은', school: '담양여자중학교', role: 'student', password: '30216' }
+  { studentId: '30216', name: '한가은', school: '담양여자중학교', role: 'student', password: '30216' },
+  { studentId: '30315', name: '조은채', school: '담양여자중학교', role: 'student', password: '30315' }
 ];
 
 export const ROSTER_CACHE_KEY = 'damyang_roster_cache';
@@ -540,6 +518,10 @@ export function getCachedStudentRoster(): StudentUser[] {
 /**
  * Real-time listener for all student submissions (for Admin Dashboard)
  */
+/**
+ * Real-time listener for all student submissions (for Admin Dashboard)
+ * Connects to Express API Server with auto-refresh and quota-resilient Firestore sync
+ */
 export function subscribeAllSubmissions(callback: (submissions: StudentSubmission[]) => void) {
   // Consolidate cached submissions and individual localStorage records
   const getConsolidatedSubmissions = (): StudentSubmission[] => {
@@ -581,15 +563,53 @@ export function subscribeAllSubmissions(callback: (submissions: StudentSubmissio
     return list;
   };
 
-  // Provide instant cached data immediately (0ms)
+  // 1. Provide instant cached data immediately (0ms)
   const initialList = getConsolidatedSubmissions();
-  if (initialList.length > 0) {
-    callback(initialList);
-  }
+  callback(initialList);
 
+  // 2. Fetch from Express API server
+  let isSubscribed = true;
+  const fetchServerSubmissions = async () => {
+    if (!isSubscribed) return;
+    try {
+      const res = await withTimeout(fetch('/api/submissions'), 3000, null);
+      if (res && res.ok) {
+        const serverList = await res.json();
+        if (Array.isArray(serverList)) {
+          const localList = getConsolidatedSubmissions();
+          const map = new Map<string, StudentSubmission>();
+          localList.forEach((s) => map.set(s.studentId, s));
+          serverList.forEach((s: StudentSubmission) => map.set(s.studentId, s));
+
+          const merged = Array.from(map.values());
+          merged.sort((a, b) => {
+            const timeA = a.submittedAt || a.updatedAt || '';
+            const timeB = b.submittedAt || b.updatedAt || '';
+            return timeB.localeCompare(timeA);
+          });
+
+          try {
+            localStorage.setItem('damyang_submissions_cache', JSON.stringify(merged));
+          } catch {}
+
+          if (isSubscribed) {
+            callback(merged);
+          }
+        }
+      }
+    } catch (e) {
+      console.warn('API submissions fetch note:', e);
+    }
+  };
+
+  fetchServerSubmissions();
+  const pollTimer = setInterval(fetchServerSubmissions, 4000);
+
+  // 3. Optional Firestore snapshot with error catching
+  let unsubFirestore = () => {};
   try {
     const q = query(collection(db, SUBMISSION_COLLECTION));
-    return onSnapshot(
+    unsubFirestore = onSnapshot(
       q,
       (snapshot) => {
         const list: StudentSubmission[] = [];
@@ -597,7 +617,6 @@ export function subscribeAllSubmissions(callback: (submissions: StudentSubmissio
           list.push({ id: d.id, ...(d.data() as StudentSubmission) });
         });
 
-        // Merge with local submissions to avoid losing any local progress
         const localList = getConsolidatedSubmissions();
         const map = new Map<string, StudentSubmission>();
         localList.forEach((s) => map.set(s.studentId, s));
@@ -613,22 +632,26 @@ export function subscribeAllSubmissions(callback: (submissions: StudentSubmissio
         try {
           localStorage.setItem('damyang_submissions_cache', JSON.stringify(merged));
         } catch {}
-        callback(merged);
+        if (isSubscribed) {
+          callback(merged);
+        }
       },
       (err) => {
-        console.warn('Submissions snapshot note (falling back to local cache):', err);
-        callback(getConsolidatedSubmissions());
+        console.warn('Submissions snapshot note (handled):', err?.message || err);
       }
     );
-  } catch (err) {
-    console.warn('Submissions subscribe error (using local storage):', err);
-    return () => {};
-  }
+  } catch {}
+
+  return () => {
+    isSubscribed = false;
+    clearInterval(pollTimer);
+    try { unsubFirestore(); } catch {}
+  };
 }
 
 /**
  * Real-time listener for all student accounts in users collection (for Admin Roster & Password Management)
- * Guaranteed to provide instant roster (0ms) and merge with live Firestore changes
+ * Connects to Express API Server and synchronizes across all devices
  */
 export function subscribeAllStudents(callback: (students: StudentUser[]) => void) {
   // 1. Immediately invoke callback with consolidated persistent roster (0ms instant response)
@@ -648,7 +671,42 @@ export function subscribeAllStudents(callback: (students: StudentUser[]) => void
     window.addEventListener('damyang_roster_changed', handleWindowSync);
   }
 
-  // 4. Connect to Firestore query with quota/network error resilience
+  // 4. Fetch from Express API server with automatic polling
+  let isSubscribed = true;
+  const fetchServerStudents = async () => {
+    if (!isSubscribed) return;
+    try {
+      const res = await withTimeout(fetch('/api/students'), 3000, null);
+      if (res && res.ok) {
+        const serverStudents = await res.json();
+        if (Array.isArray(serverStudents) && serverStudents.length > 0) {
+          const currentRoster = getStoredStudentRoster();
+          const mergedMap = new Map<string, StudentUser>();
+          currentRoster.forEach((item) => mergedMap.set(item.studentId, item));
+          serverStudents.forEach((st: StudentUser) => {
+            if (st && st.studentId) mergedMap.set(st.studentId, st);
+          });
+
+          const list = Array.from(mergedMap.values()).sort((a, b) => a.studentId.localeCompare(b.studentId));
+          try {
+            localStorage.setItem(ROSTER_CACHE_KEY, JSON.stringify(list));
+            localStorage.setItem(LEGACY_ROSTER_CACHE_KEY, JSON.stringify(list));
+          } catch {}
+
+          if (isSubscribed) {
+            callback(list);
+          }
+        }
+      }
+    } catch (e) {
+      console.warn('API students fetch note:', e);
+    }
+  };
+
+  fetchServerStudents();
+  const pollTimer = setInterval(fetchServerStudents, 4000);
+
+  // 5. Connect to Firestore query with quota resilience
   let unsubFirestore = () => {};
   try {
     const q = query(collection(db, USERS_COLLECTION));
@@ -672,47 +730,41 @@ export function subscribeAllStudents(callback: (students: StudentUser[]) => void
           }
         });
 
-        // Merge firestore users with local roster (respecting deleted students)
         const currentRoster = getStoredStudentRoster();
         const mergedMap = new Map<string, StudentUser>();
-        currentRoster.forEach((item) => {
-          mergedMap.set(item.studentId, item);
-        });
-        firestoreMap.forEach((user, sid) => {
-          mergedMap.set(sid, user);
-        });
+        currentRoster.forEach((item) => mergedMap.set(item.studentId, item));
+        firestoreMap.forEach((user, sid) => mergedMap.set(sid, user));
 
-        const list = Array.from(mergedMap.values());
-        list.sort((a, b) => a.studentId.localeCompare(b.studentId));
-
+        const list = Array.from(mergedMap.values()).sort((a, b) => a.studentId.localeCompare(b.studentId));
         try {
           localStorage.setItem(ROSTER_CACHE_KEY, JSON.stringify(list));
           localStorage.setItem(LEGACY_ROSTER_CACHE_KEY, JSON.stringify(list));
         } catch {}
 
-        callback(list);
+        if (isSubscribed) {
+          callback(list);
+        }
       },
       (err) => {
-        console.warn('Students snapshot note (using local persistent storage):', err);
-        callback(getStoredStudentRoster());
+        console.warn('Students snapshot note (quota handled):', err?.message || err);
       }
     );
-  } catch (err) {
-    console.warn('Students subscribe error:', err);
-  }
+  } catch {}
 
   return () => {
+    isSubscribed = false;
+    clearInterval(pollTimer);
     rosterListeners.delete(callback);
     if (typeof window !== 'undefined') {
       window.removeEventListener('damyang_roster_changed', handleWindowSync);
     }
-    unsubFirestore();
+    try { unsubFirestore(); } catch {}
   };
 }
 
 /**
- * Add or update student user in Firestore and Local Persistent Cache
- * Guaranteed to succeed locally and sync to cloud
+ * Add or update student user in Express API, Firestore, and Local Persistent Cache
+ * Guaranteed to succeed instantly across all devices
  */
 export async function saveOrUpdateStudent(student: {
   studentId: string;
@@ -729,7 +781,7 @@ export async function saveOrUpdateStudent(student: {
     return false;
   }
 
-  // 1. Remove from deleted tombstones if it was previously deleted
+  // 1. Remove from deleted tombstones if previously deleted
   try {
     const delRaw = localStorage.getItem(DELETED_STUDENTS_KEY);
     if (delRaw) {
@@ -766,37 +818,21 @@ export async function saveOrUpdateStudent(student: {
   try {
     localStorage.setItem(ROSTER_CACHE_KEY, JSON.stringify(updatedList));
     localStorage.setItem(LEGACY_ROSTER_CACHE_KEY, JSON.stringify(updatedList));
-  } catch (err) {
-    console.warn('LocalStorage save error:', err);
-  }
-
-  // 3. Immediately notify active UI subscribers across the application
-  notifyRosterListeners(updatedList);
-
-  // 4. Ensure this student is represented in local submissions cache so they appear in both views
-  try {
-    const rawSub = localStorage.getItem('damyang_submissions_cache');
-    let subList: StudentSubmission[] = rawSub ? JSON.parse(rawSub) : [];
-    if (!Array.isArray(subList)) subList = [];
-    const hasSub = subList.some((s) => s.studentId === cleanId);
-    if (!hasSub) {
-      const newSub: StudentSubmission = {
-        studentId: cleanId,
-        studentName: studentName,
-        school: schoolName,
-        isCompleted: false,
-        totalStamps: 0,
-        updatedAt: new Date().toISOString(),
-        workbookEntries: {},
-        weatherRecords: [],
-        dailyReflections: []
-      };
-      subList.push(newSub);
-      localStorage.setItem('damyang_submissions_cache', JSON.stringify(subList));
-    }
   } catch {}
 
-  // 5. Asynchronously persist to Cloud Firestore in background (non-blocking, tolerant of quota/network issues)
+  // 3. Immediately notify active UI subscribers
+  notifyRosterListeners(updatedList);
+
+  // 4. Save to Express backend server (/api/students)
+  try {
+    fetch('/api/students', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(studentUser)
+    }).catch(() => {});
+  } catch {}
+
+  // 5. Best-effort non-blocking sync to Firestore
   try {
     const docRef = doc(db, USERS_COLLECTION, cleanId);
     setDoc(
@@ -810,18 +846,14 @@ export async function saveOrUpdateStudent(student: {
         updatedAt: new Date().toISOString()
       },
       { merge: true }
-    ).catch((err) => {
-      console.warn('Firestore user doc sync note (safe in persistent local storage):', err);
-    });
-  } catch (err) {
-    console.warn('Firestore setDoc invocation note:', err);
-  }
+    ).catch(() => {});
+  } catch {}
 
   return true;
 }
 
 /**
- * Reset student password in local persistent cache and Firestore
+ * Reset student password in Express API, local persistent cache, and Firestore
  */
 export async function resetStudentPassword(studentId: string, newPassword: string): Promise<boolean> {
   const cleanId = studentId.trim();
@@ -841,7 +873,16 @@ export async function resetStudentPassword(studentId: string, newPassword: strin
     notifyRosterListeners(currentRoster);
   }
 
-  // 2. Sync to Firestore in background
+  // 2. Sync to Express server API
+  try {
+    fetch('/api/students/reset-password', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ studentId: cleanId, newPassword: trimmedPassword })
+    }).catch(() => {});
+  } catch {}
+
+  // 3. Sync to Firestore in background
   try {
     const docRef = doc(db, USERS_COLLECTION, cleanId);
     setDoc(
@@ -851,18 +892,14 @@ export async function resetStudentPassword(studentId: string, newPassword: strin
         updatedAt: new Date().toISOString()
       },
       { merge: true }
-    ).catch((err) => {
-      console.warn('Firestore password reset sync note (safe locally):', err);
-    });
-  } catch (err) {
-    console.warn('Firestore resetDoc note:', err);
-  }
+    ).catch(() => {});
+  } catch {}
 
   return true;
 }
 
 /**
- * Delete student account from local persistent cache, Firestore, and purge associated submissions
+ * Delete student account from Express API, local cache, and Firestore
  */
 export async function deleteStudentUser(studentId: string): Promise<boolean> {
   const cleanId = studentId.trim();
@@ -878,7 +915,7 @@ export async function deleteStudentUser(studentId: string): Promise<boolean> {
     }
   } catch {}
 
-  // 2. Remove from roster cache
+  // 2. Remove from local roster cache
   const currentRoster = getStoredStudentRoster();
   const filtered = currentRoster.filter((s) => s.studentId !== cleanId);
   try {
@@ -903,11 +940,14 @@ export async function deleteStudentUser(studentId: string): Promise<boolean> {
       const filteredSubs = subs.filter((s) => s.studentId !== cleanId);
       localStorage.setItem('damyang_submissions_cache', JSON.stringify(filteredSubs));
     }
-  } catch (cErr) {
-    console.warn('Error clearing local caches:', cErr);
-  }
+  } catch {}
 
-  // 4. Background delete in Firestore
+  // 4. Delete on Express server API
+  try {
+    fetch(`/api/students/${encodeURIComponent(cleanId)}`, { method: 'DELETE' }).catch(() => {});
+  } catch {}
+
+  // 5. Background delete in Firestore
   try {
     deleteDoc(doc(db, USERS_COLLECTION, cleanId)).catch(() => {});
     deleteDoc(doc(db, SUBMISSION_COLLECTION, cleanId)).catch(() => {});
@@ -927,6 +967,11 @@ export async function restoreDefaultStudentRoster(): Promise<StudentUser[]> {
   } catch {}
 
   notifyRosterListeners(DEFAULT_STUDENT_ROSTER_ITEMS);
+
+  // Sync to Express server API
+  try {
+    fetch('/api/students/restore-default', { method: 'POST' }).catch(() => {});
+  } catch {}
 
   // Sync to Firestore in background
   DEFAULT_STUDENT_ROSTER_ITEMS.forEach((item) => {

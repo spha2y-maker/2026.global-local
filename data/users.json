@@ -1,0 +1,94 @@
+[
+  {
+    "studentId": "30101",
+    "name": "김하은",
+    "school": "담양여자중학교",
+    "role": "student",
+    "password": "30101"
+  },
+  {
+    "studentId": "30102",
+    "name": "박소율",
+    "school": "담양여자중학교",
+    "role": "student",
+    "password": "30102"
+  },
+  {
+    "studentId": "30103",
+    "name": "이서연",
+    "school": "담양여자중학교",
+    "role": "student",
+    "password": "30103"
+  },
+  {
+    "studentId": "30104",
+    "name": "최지우",
+    "school": "담양여자중학교",
+    "role": "student",
+    "password": "30104"
+  },
+  {
+    "studentId": "30105",
+    "name": "정유진",
+    "school": "담양여자중학교",
+    "role": "student",
+    "password": "30105"
+  },
+  {
+    "studentId": "30111",
+    "name": "김민서",
+    "school": "담양여자중학교",
+    "role": "student",
+    "password": "30111",
+    "lastLoginAt": "2026-10-20T05:05:10.515Z"
+  },
+  {
+    "studentId": "30119",
+    "name": "정하린",
+    "school": "담양여자중학교",
+    "role": "student",
+    "password": "30119"
+  },
+  {
+    "studentId": "30201",
+    "name": "강민주",
+    "school": "담양여자중학교",
+    "role": "student",
+    "password": "30201"
+  },
+  {
+    "studentId": "30202",
+    "name": "윤채원",
+    "school": "담양여자중학교",
+    "role": "student",
+    "password": "30202"
+  },
+  {
+    "studentId": "30203",
+    "name": "송예린",
+    "school": "담양여자중학교",
+    "role": "student",
+    "password": "30203"
+  },
+  {
+    "studentId": "30215",
+    "name": "이수민",
+    "school": "담양여자중학교",
+    "role": "student",
+    "password": "1234"
+  },
+  {
+    "studentId": "30216",
+    "name": "한가은",
+    "school": "담양여자중학교",
+    "role": "student",
+    "password": "30216"
+  },
+  {
+    "studentId": "30315",
+    "name": "조은채",
+    "school": "담양여자중학교",
+    "role": "student",
+    "password": "30315"
+  }
+]

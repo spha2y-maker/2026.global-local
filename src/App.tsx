@@ -137,18 +137,29 @@ export default function App() {
 
     loadStudentSubmission(currentUser.studentId).then((sub) => {
       if (sub) {
-        if (sub.workbookEntries) {
+        if (sub.workbookEntries && Object.keys(sub.workbookEntries).length > 0) {
           setWorkbookEntries((prev) => {
-            const merged = { ...prev };
-            Object.entries(sub.workbookEntries).forEach(([k, v]) => {
-              merged[k] = {
-                ...(prev[k] || {}),
-                ...v,
-                curriculumResponses: {
-                  ...(prev[k]?.curriculumResponses || {}),
-                  ...(v.curriculumResponses || {})
-                }
-              };
+            const prevList = Object.values(prev) as WorkbookEntry[];
+            const hasLocalChanges = prevList.some((e) => e.reflectionText?.trim() || e.stampAcquired || e.photoUrl);
+            if (!hasLocalChanges) {
+              return sub.workbookEntries;
+            }
+            const merged = { ...sub.workbookEntries };
+            Object.entries(prev).forEach(([k, val]) => {
+              const v = val as WorkbookEntry;
+              if (v && (v.reflectionText?.trim() || v.stampAcquired || v.photoUrl)) {
+                merged[k] = {
+                  ...(merged[k] || {}),
+                  ...v,
+                  reflectionText: v.reflectionText?.trim() || merged[k]?.reflectionText || '',
+                  curriculumResponses: {
+                    ...(merged[k]?.curriculumResponses || {}),
+                    ...(v.curriculumResponses || {})
+                  },
+                  stampAcquired: v.stampAcquired || merged[k]?.stampAcquired,
+                  photoUrl: v.photoUrl || merged[k]?.photoUrl
+                };
+              }
             });
             return merged;
           });
@@ -385,22 +396,33 @@ export default function App() {
     if (user.role === 'admin') {
       setActiveTab('admin');
     } else {
-      // Fetch student data and safely merge so nothing is ever overwritten or lost
+      // Fetch student data and safely restore so work is accessible from any mobile or PC
       setCloudSyncStatus('saving');
       const sub = await loadStudentSubmission(user.studentId);
       if (sub) {
-        if (sub.workbookEntries) {
+        if (sub.workbookEntries && Object.keys(sub.workbookEntries).length > 0) {
           setWorkbookEntries((prev) => {
-            const merged = { ...prev };
-            Object.entries(sub.workbookEntries).forEach(([k, v]) => {
-              merged[k] = {
-                ...(prev[k] || {}),
-                ...v,
-                curriculumResponses: {
-                  ...(prev[k]?.curriculumResponses || {}),
-                  ...(v.curriculumResponses || {})
-                }
-              };
+            const prevList = Object.values(prev) as WorkbookEntry[];
+            const hasLocalChanges = prevList.some((e) => e.reflectionText?.trim() || e.stampAcquired || e.photoUrl);
+            if (!hasLocalChanges) {
+              return sub.workbookEntries;
+            }
+            const merged = { ...sub.workbookEntries };
+            Object.entries(prev).forEach(([k, val]) => {
+              const v = val as WorkbookEntry;
+              if (v && (v.reflectionText?.trim() || v.stampAcquired || v.photoUrl)) {
+                merged[k] = {
+                  ...(merged[k] || {}),
+                  ...v,
+                  reflectionText: v.reflectionText?.trim() || merged[k]?.reflectionText || '',
+                  curriculumResponses: {
+                    ...(merged[k]?.curriculumResponses || {}),
+                    ...(v.curriculumResponses || {})
+                  },
+                  stampAcquired: v.stampAcquired || merged[k]?.stampAcquired,
+                  photoUrl: v.photoUrl || merged[k]?.photoUrl
+                };
+              }
             });
             return merged;
           });
@@ -418,8 +440,17 @@ export default function App() {
           setIsSubmitted(true);
         }
       } else {
-        // If first login on this device, immediately preserve and upload existing local work to their account!
-        await syncToCloud(user, workbookEntries, weatherRecords, dailyReflections, bookActivity, isSubmitted);
+        // Only upload local work if there was actual student work entered on this browser
+        const currentEntries = Object.values(workbookEntries) as WorkbookEntry[];
+        const hasLocalData = 
+          currentEntries.some((e) => e.reflectionText?.trim() || e.stampAcquired || e.photoUrl) ||
+          dailyReflections.some((r) => r.memorableScene?.trim() || r.biggestEmotion?.trim()) ||
+          weatherRecords.some((w) => w.studentInvestigation?.trim()) ||
+          Object.values(bookActivity).some((v) => typeof v === 'string' && v.trim().length > 0);
+
+        if (hasLocalData) {
+          await syncToCloud(user, workbookEntries, weatherRecords, dailyReflections, bookActivity, isSubmitted);
+        }
       }
       setCloudSyncStatus('saved');
     }

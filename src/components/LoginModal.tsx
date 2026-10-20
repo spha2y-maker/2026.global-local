@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { UserCircle, Lock, School, ShieldAlert, CheckCircle2, Sparkles, X, Loader2, CloudCheck } from 'lucide-react';
 import { StudentUser } from '../types';
-import { loginStudentWithAuth, loginAdminWithAuth } from '../services/submissionService';
+import { loginStudentWithAuth, loginAdminWithAuth, getStoredStudentRoster } from '../services/submissionService';
 
 interface LoginModalProps {
   isOpen: boolean;
@@ -25,17 +25,52 @@ export const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onClose, onLogin
 
   if (!isOpen) return null;
 
+  const handleStudentIdChange = (val: string) => {
+    setStudentId(val);
+    const clean = val.trim();
+    if (clean.length >= 4) {
+      try {
+        const roster = getStoredStudentRoster();
+        const found = roster.find((s) => s.studentId === clean);
+        if (found) {
+          setName(found.name);
+          if (password === '1234' || !password || password === '30215') {
+            setPassword(found.password || clean);
+          }
+        }
+      } catch {}
+    }
+  };
+
   const handleStudentLogin = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!studentId.trim() || !name.trim() || !password.trim()) {
-      setErrorMsg('학번, 이름, 비밀번호를 모두 입력해 주세요.');
+    const cleanId = studentId.trim();
+    if (!cleanId) {
+      setErrorMsg('학번을 입력해 주세요.');
       return;
     }
+
+    let finalName = name.trim();
+    if (!finalName) {
+      try {
+        const roster = getStoredStudentRoster();
+        const found = roster.find((s) => s.studentId === cleanId);
+        if (found) {
+          finalName = found.name;
+        } else {
+          finalName = `${cleanId} 학생`;
+        }
+      } catch {
+        finalName = `${cleanId} 학생`;
+      }
+    }
+
+    const finalPassword = password.trim() || cleanId;
 
     setIsLoading(true);
     setErrorMsg('');
     try {
-      const user = await loginStudentWithAuth(studentId, name, school, password);
+      const user = await loginStudentWithAuth(cleanId, finalName, school, finalPassword);
       onClose();
       onLoginSuccess(user);
     } catch (err: any) {
@@ -173,8 +208,8 @@ export const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onClose, onLogin
                     required
                     disabled={isLoading}
                     value={studentId}
-                    onChange={(e) => setStudentId(e.target.value)}
-                    placeholder="30215"
+                    onChange={(e) => handleStudentIdChange(e.target.value)}
+                    placeholder="30111"
                     className="w-full bg-slate-50 border border-slate-300 rounded-2xl px-4 py-2.5 text-sm text-slate-900 font-mono placeholder:text-slate-400 focus:outline-none focus:border-emerald-500 focus:bg-white transition"
                   />
                 </div>
@@ -184,11 +219,10 @@ export const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onClose, onLogin
                   </label>
                   <input
                     type="text"
-                    required
                     disabled={isLoading}
                     value={name}
                     onChange={(e) => setName(e.target.value)}
-                    placeholder="이수민"
+                    placeholder="성명 (학번 입력 시 자동입력)"
                     className="w-full bg-slate-50 border border-slate-300 rounded-2xl px-4 py-2.5 text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:border-emerald-500 focus:bg-white transition"
                   />
                 </div>
@@ -201,15 +235,14 @@ export const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onClose, onLogin
                 </label>
                 <input
                   type="password"
-                  required
                   disabled={isLoading}
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  placeholder="••••"
+                  placeholder="초기 암호는 본인 학번(5자리)"
                   className="w-full bg-slate-50 border border-slate-300 rounded-2xl px-4 py-2.5 text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:border-emerald-500 focus:bg-white transition"
                 />
                 <span className="text-[10px] text-slate-500 mt-1 block">
-                  * 다른 기기(태블릿, 스마트폰)에서도 동일한 학번/비밀번호로 로그인 시 자동 동기화됩니다.
+                  * 초기 비밀번호는 본인 학번(예: {studentId || '30111'})이며, 모바일/PC 어디서든 동일하게 로그인됩니다.
                 </span>
               </div>
 
