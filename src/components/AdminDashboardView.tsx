@@ -26,7 +26,8 @@ import {
   CloudSun,
   FileText,
   Upload,
-  RotateCcw
+  RotateCcw,
+  Printer
 } from 'lucide-react';
 import { StudentSubmission, StudentUser } from '../types';
 import { 
@@ -1055,12 +1056,23 @@ export const AdminDashboardView: React.FC = () => {
                   <span className="text-xs font-normal text-slate-500">({selectedStudent.school} • {selectedStudent.studentId})</span>
                 </h3>
               </div>
-              <button
-                onClick={() => setSelectedStudent(null)}
-                className="p-2 rounded-xl text-slate-400 hover:text-slate-800 hover:bg-slate-100 transition border border-transparent"
-              >
-                <X className="w-5 h-5" />
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => window.print()}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold transition shadow-xs cursor-pointer"
+                  title="이 학생의 종합 기록을 인쇄하거나 PDF로 저장합니다."
+                >
+                  <Printer className="w-3.5 h-3.5" />
+                  <span>인쇄 / PDF 출력</span>
+                </button>
+                <button
+                  onClick={() => setSelectedStudent(null)}
+                  className="p-2 rounded-xl text-slate-400 hover:text-slate-800 hover:bg-slate-100 transition border border-transparent cursor-pointer"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
             </div>
 
             {/* Modal Section Switcher Tabs */}
