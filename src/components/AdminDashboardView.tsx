@@ -1136,7 +1136,7 @@ export const AdminDashboardView: React.FC = () => {
                         return (
                           <div key={p.id} className="p-3 rounded-2xl bg-slate-50 border border-slate-200 space-y-2">
                             <div className="font-bold text-slate-800 truncate" title={p.name}>{p.name}</div>
-                            <div className="h-28 w-full rounded-xl overflow-hidden bg-slate-200 relative">
+                            <div className="aspect-video w-full rounded-xl overflow-hidden bg-slate-200 relative">
                               {entry?.photoUrl ? (
                                 <img src={entry.photoUrl} alt={p.name} className="w-full h-full object-cover" />
                               ) : (

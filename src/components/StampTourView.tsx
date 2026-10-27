@@ -47,7 +47,7 @@ export const StampTourView: React.FC<StampTourViewProps> = ({
     const file = e.target.files?.[0];
     if (!file) return;
 
-    // Read and compress image for lightweight cloud synchronization
+    // Read and compress image at high definition for crisp PDF & presentation output
     const reader = new FileReader();
     reader.onload = (event) => {
       const img = new Image();
@@ -55,8 +55,7 @@ export const StampTourView: React.FC<StampTourViewProps> = ({
         const canvas = document.createElement('canvas');
         let width = img.width;
         let height = img.height;
-        // Optimized dimensions (500px) ensuring fast upload and avoiding Firestore document limits
-        const maxDim = 500;
+        const maxDim = 1600;
 
         if (width > maxDim || height > maxDim) {
           if (width > height) {
@@ -71,9 +70,16 @@ export const StampTourView: React.FC<StampTourViewProps> = ({
         canvas.width = width;
         canvas.height = height;
         const ctx = canvas.getContext('2d');
-        ctx?.drawImage(img, 0, 0, width, height);
+        if (ctx) {
+          ctx.imageSmoothingEnabled = true;
+          ctx.imageSmoothingQuality = 'high';
+          ctx.drawImage(img, 0, 0, width, height);
+        }
 
-        const compressedDataUrl = canvas.toDataURL('image/jpeg', 0.65);
+        let compressedDataUrl = canvas.toDataURL('image/jpeg', 0.9);
+        if (compressedDataUrl.length > 550000) {
+          compressedDataUrl = canvas.toDataURL('image/jpeg', 0.82);
+        }
         const timestamp = new Date().toLocaleString('ko-KR', {
           month: 'numeric',
           day: 'numeric',
@@ -323,8 +329,8 @@ export const StampTourView: React.FC<StampTourViewProps> = ({
                   : 'border-slate-200 hover:border-emerald-300'
               }`}
             >
-              {/* Header with Place Image / Thumbnail */}
-              <div className="relative h-44 w-full bg-slate-100 overflow-hidden group">
+              {/* Header with Place Image / Thumbnail (16:9 Ratio) */}
+              <div className="relative aspect-video w-full bg-slate-100 overflow-hidden group">
                 {entry?.photoUrl ? (
                   <>
                     <img

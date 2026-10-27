@@ -128,7 +128,7 @@
     break-after: avoid !important;
   }
 
-  /* A4 Portrait Workbook Document */
+  /* A4 Portrait Workbook Document - Section-Based Clean Pagination */
   body[data-print-mode="portrait"] .workbook-print-doc {
     width: 100% !important;
     max-width: 100% !important;
@@ -138,10 +138,26 @@
     margin: 0 !important;
   }
 
-  body[data-print-mode="portrait"] .workbook-page-break {
-    page-break-after: always !important;
+  body[data-print-mode="portrait"] .workbook-section-card {
+    break-inside: avoid !important;
+    page-break-inside: avoid !important;
+    margin-bottom: 5mm !important;
+    box-shadow: none !important;
+    background: #ffffff !important;
+  }
+
+  body[data-print-mode="portrait"] .workbook-force-page-break {
     break-after: page !important;
-    height: 0 !important;
-    margin: 0 !important;
+    page-break-after: always !important;
+  }
+
+  body[data-print-mode="portrait"] .workbook-start-new-page {
+    break-before: page !important;
+    page-break-before: always !important;
+  }
+
+  .workbook-photo-16x9 {
+    aspect-ratio: 16 / 9 !important;
+    width: 100% !important;
   }
 }

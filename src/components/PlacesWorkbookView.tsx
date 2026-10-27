@@ -62,7 +62,7 @@ export const PlacesWorkbookView: React.FC<PlacesWorkbookViewProps> = ({
         const canvas = document.createElement('canvas');
         let width = img.width;
         let height = img.height;
-        const maxDim = 500;
+        const maxDim = 1600;
 
         if (width > maxDim || height > maxDim) {
           if (width > height) {
@@ -77,9 +77,17 @@ export const PlacesWorkbookView: React.FC<PlacesWorkbookViewProps> = ({
         canvas.width = width;
         canvas.height = height;
         const ctx = canvas.getContext('2d');
-        ctx?.drawImage(img, 0, 0, width, height);
+        if (ctx) {
+          ctx.imageSmoothingEnabled = true;
+          ctx.imageSmoothingQuality = 'high';
+          ctx.drawImage(img, 0, 0, width, height);
+        }
 
-        const compressedDataUrl = canvas.toDataURL('image/jpeg', 0.65);
+        let compressedDataUrl = canvas.toDataURL('image/jpeg', 0.9);
+        if (compressedDataUrl.length > 550000) {
+          compressedDataUrl = canvas.toDataURL('image/jpeg', 0.82);
+        }
+
         const timestamp = new Date().toLocaleString('ko-KR', {
           month: 'numeric',
           day: 'numeric',
@@ -217,10 +225,10 @@ export const PlacesWorkbookView: React.FC<PlacesWorkbookViewProps> = ({
         {/* Left Column: Place In-Depth Information (5 cols) */}
         <div className="lg:col-span-5 space-y-6">
           <div className="bg-white border border-slate-200 rounded-3xl overflow-hidden shadow-xs">
-            {/* Image Header */}
-            <div className="relative h-56 sm:h-64 w-full overflow-hidden">
+            {/* Image Header (16:9 Ratio) */}
+            <div className="relative aspect-video w-full overflow-hidden bg-slate-100">
               <img
-                src={activePlace.image}
+                src={activeEntry.photoUrl || activePlace.image}
                 alt={activePlace.name}
                 referrerPolicy="no-referrer"
                 className="w-full h-full object-cover"

@@ -91,7 +91,12 @@ export const PresentationExportView: React.FC<PresentationExportViewProps> = ({
     myPromiseToFuture: ''
   };
 
-  const completedStamps = PLACES_DATA.filter((p) => safeEntries[p.id]?.stampAcquired).length;
+  // Safe entry helper supporting both standard place.id and legacy indexed keys
+  const getPlaceEntry = (place: (typeof PLACES_DATA)[number], idx: number): WorkbookEntry | undefined => {
+    return safeEntries[place.id] || safeEntries[`p${idx + 1}`];
+  };
+
+  const completedStamps = PLACES_DATA.filter((p, idx) => getPlaceEntry(p, idx)?.stampAcquired).length;
   const totalStamps = PLACES_DATA.length;
   const stampPercent = Math.round((completedStamps / totalStamps) * 100);
 
@@ -108,7 +113,7 @@ export const PresentationExportView: React.FC<PresentationExportViewProps> = ({
       styleEl.textContent = `
         @page {
           size: A4 portrait !important;
-          margin: 10mm 12mm !important;
+          margin: 10mm 11mm !important;
         }
       `;
     } else {
@@ -136,16 +141,90 @@ export const PresentationExportView: React.FC<PresentationExportViewProps> = ({
       } catch (err) {
         console.error('Print trigger error:', err);
       }
-    }, 100);
+    }, 120);
   };
 
-  // Direct 1-Click PDF file download using jsPDF and html2canvas
-  // Solves the problem for students whose mobile browser or PC printer dialog blocks PDF saving
+  // Ensure all images in a container finish loading/decoding before high-DPI PDF capture
+  const waitForImagesReady = async (root: HTMLElement) => {
+    const imgs = Array.from(root.querySelectorAll<HTMLImageElement>('img'));
+    await Promise.all(
+      imgs.map(async (img) => {
+        if (!img.complete) {
+          await new Promise<void>((resolve) => {
+            const done = () => resolve();
+            img.addEventListener('load', done, { once: true });
+            img.addEventListener('error', done, { once: true });
+            setTimeout(done, 4000);
+          });
+        }
+        if (typeof img.decode === 'function') {
+          try {
+            await img.decode();
+          } catch {
+            // Ignore decode warnings on fallback images
+          }
+        }
+      })
+    );
+  };
+
+  // Pre-crop loaded images to exact 16:9 at native high resolution so html2canvas never squashes object-cover or degrades photo clarity
+  const buildHighRes16x9PhotoMap = (root: HTMLElement): Map<string, string> => {
+    const photoMap = new Map<string, string>();
+    const photoNodes = root.querySelectorAll<HTMLImageElement>('img[data-photo-16x9="true"]');
+
+    photoNodes.forEach((imgEl) => {
+      const photoId = imgEl.dataset.photoId;
+      if (!photoId || !imgEl.complete || !imgEl.naturalWidth || !imgEl.naturalHeight) return;
+
+      try {
+        const srcW = imgEl.naturalWidth;
+        const srcH = imgEl.naturalHeight;
+        const targetRatio = 16 / 9;
+        const srcRatio = srcW / srcH;
+
+        let cropW = srcW;
+        let cropH = srcH;
+        let sx = 0;
+        let sy = 0;
+
+        if (srcRatio > targetRatio) {
+          cropW = srcH * targetRatio;
+          sx = (srcW - cropW) / 2;
+        } else if (srcRatio < targetRatio) {
+          cropH = srcW / targetRatio;
+          sy = (srcH - cropH) / 2;
+        }
+
+        const outW = Math.min(1920, Math.max(1280, Math.round(cropW)));
+        const outH = Math.round((outW * 9) / 16);
+
+        const offCanvas = document.createElement('canvas');
+        offCanvas.width = outW;
+        offCanvas.height = outH;
+        const ctx = offCanvas.getContext('2d');
+        if (!ctx) return;
+
+        ctx.imageSmoothingEnabled = true;
+        ctx.imageSmoothingQuality = 'high';
+        ctx.drawImage(imgEl, sx, sy, cropW, cropH, 0, 0, outW, outH);
+
+        const highResDataUrl = offCanvas.toDataURL('image/jpeg', 0.96);
+        photoMap.set(photoId, highResDataUrl);
+      } catch {
+        // Cross-origin fallback image without CORS headers: keep original src safely
+      }
+    });
+
+    return photoMap;
+  };
+
+  // Direct 1-Click High-Resolution PDF Download with Section-Based Non-Clipping Pagination
   const handleDownloadPdfDirect = async () => {
     setIsGeneratingPdf(true);
     const isLandscape = viewMode === 'slideshow';
     const orientation = isLandscape ? 'landscape' : 'portrait';
-    
+
     try {
       const pdf = new jsPDF({
         orientation,
@@ -155,65 +234,132 @@ export const PresentationExportView: React.FC<PresentationExportViewProps> = ({
       });
 
       if (isLandscape) {
-        // Landscape Slideshow Mode: capture all 14 slide pages
+        // Landscape Slideshow Mode: capture all 14 slide pages at high DPI
         const deckEl = document.getElementById('presentation-slides-deck');
         if (!deckEl) throw new Error('슬라이드 덱을 찾을 수 없습니다.');
+        await waitForImagesReady(deckEl);
+        const photoMap = buildHighRes16x9PhotoMap(deckEl);
         const slideNodes = deckEl.querySelectorAll<HTMLElement>('.ppt-slide-page');
-        
+
         for (let i = 0; i < slideNodes.length; i++) {
           const slideNode = slideNodes[i];
           const canvas = await html2canvas(slideNode, {
-            scale: 1.5,
+            scale: 2.5,
             useCORS: true,
+            allowTaint: false,
+            imageTimeout: 15000,
             logging: false,
-            backgroundColor: '#ffffff'
+            backgroundColor: '#ffffff',
+            onclone: (clonedDoc) => {
+              clonedDoc.querySelectorAll<HTMLImageElement>('img[data-photo-16x9="true"]').forEach((clonedImg) => {
+                const pid = clonedImg.dataset.photoId;
+                if (pid && photoMap.has(pid)) {
+                  clonedImg.src = photoMap.get(pid)!;
+                }
+              });
+            }
           });
-          const imgData = canvas.toDataURL('image/jpeg', 0.92);
+          const imgData = canvas.toDataURL('image/jpeg', 0.95);
           if (i > 0) pdf.addPage('a4', 'landscape');
-          pdf.addImage(imgData, 'JPEG', 0, 0, 297, 210, undefined, 'FAST');
+          pdf.addImage(imgData, 'JPEG', 0, 0, 297, 210, undefined, 'NONE');
         }
       } else {
-        // Portrait Workbook Mode: capture each A4 portrait section
+        // Portrait Full Workbook Mode: capture discrete logical sections at 3x print DPI
+        // and pack cleanly onto A4 Portrait pages so NO section or 16:9 photo is ever sliced or stretched
         const docEl = document.getElementById('workbook-document-root');
         if (!docEl) throw new Error('워크북 문서를 찾을 수 없습니다.');
-        const pageNodes = docEl.querySelectorAll<HTMLElement>('.workbook-a4-page');
 
-        if (pageNodes.length > 0) {
-          for (let i = 0; i < pageNodes.length; i++) {
-            const pageNode = pageNodes[i];
-            const canvas = await html2canvas(pageNode, {
-              scale: 1.5,
-              useCORS: true,
-              logging: false,
-              backgroundColor: '#ffffff'
-            });
-            const imgData = canvas.toDataURL('image/jpeg', 0.95);
-            if (i > 0) pdf.addPage('a4', 'portrait');
-            pdf.addImage(imgData, 'JPEG', 0, 0, 210, 297, undefined, 'FAST');
-          }
-        } else {
-          const canvas = await html2canvas(docEl, {
-            scale: 1.5,
+        await waitForImagesReady(docEl);
+        const photoMap = buildHighRes16x9PhotoMap(docEl);
+        const sectionNodes = Array.from(docEl.querySelectorAll<HTMLElement>('.workbook-pdf-section'));
+
+        const pageWidthMm = 210;
+        const pageHeightMm = 297;
+        const marginXMm = 11;
+        const marginTopMm = 10;
+        const marginBottomMm = 13; // Reserves clean space for footer page numbering
+        const contentWidthMm = pageWidthMm - marginXMm * 2; // 188mm
+        const maxContentHeightMm = pageHeightMm - marginTopMm - marginBottomMm; // 274mm
+        const sectionGapMm = 4.5;
+
+        let currentY = marginTopMm;
+        let hasContentOnCurrentPage = false;
+        let forceNextSectionNewPage = false;
+
+        for (let i = 0; i < sectionNodes.length; i++) {
+          const sectionNode = sectionNodes[i];
+          const startOnNewPage =
+            forceNextSectionNewPage || sectionNode.dataset.newPageBefore === 'true';
+
+          const canvas = await html2canvas(sectionNode, {
+            scale: 3,
             useCORS: true,
+            allowTaint: false,
+            imageTimeout: 15000,
             logging: false,
-            backgroundColor: '#ffffff'
+            backgroundColor: '#ffffff',
+            onclone: (clonedDoc) => {
+              clonedDoc.querySelectorAll<HTMLImageElement>('img[data-photo-16x9="true"]').forEach((clonedImg) => {
+                const pid = clonedImg.dataset.photoId;
+                if (pid && photoMap.has(pid)) {
+                  clonedImg.src = photoMap.get(pid)!;
+                }
+              });
+            }
           });
-          const imgWidth = 210;
-          const pageHeight = 297;
-          const imgHeight = (canvas.height * imgWidth) / canvas.width;
-          let heightLeft = imgHeight;
-          let position = 0;
-          const imgData = canvas.toDataURL('image/jpeg', 0.95);
 
-          pdf.addImage(imgData, 'JPEG', 0, position, imgWidth, imgHeight, undefined, 'FAST');
-          heightLeft -= pageHeight;
+          // Exact proportional dimensions so photos & typography never stretch or squash
+          let drawW = contentWidthMm;
+          let drawH = (canvas.height * drawW) / canvas.width;
 
-          while (heightLeft > 0) {
-            position = heightLeft - imgHeight;
-            pdf.addPage('a4', 'portrait');
-            pdf.addImage(imgData, 'JPEG', 0, position, imgWidth, imgHeight, undefined, 'FAST');
-            heightLeft -= pageHeight;
+          // Safety guard if any single section has extraordinary essay length exceeding 1 full A4 page
+          if (drawH > maxContentHeightMm) {
+            drawH = maxContentHeightMm;
+            drawW = (canvas.width * drawH) / canvas.height;
           }
+
+          const neededHeight = hasContentOnCurrentPage ? sectionGapMm + drawH : drawH;
+
+          if (hasContentOnCurrentPage && (startOnNewPage || currentY + neededHeight > marginTopMm + maxContentHeightMm)) {
+            pdf.addPage('a4', 'portrait');
+            currentY = marginTopMm;
+            hasContentOnCurrentPage = false;
+          }
+
+          if (hasContentOnCurrentPage) {
+            currentY += sectionGapMm;
+          }
+
+          const drawX = (pageWidthMm - drawW) / 2;
+          const imgData = canvas.toDataURL('image/jpeg', 0.96);
+          pdf.addImage(imgData, 'JPEG', drawX, currentY, drawW, drawH, undefined, 'NONE');
+
+          currentY += drawH;
+          hasContentOnCurrentPage = true;
+          forceNextSectionNewPage = sectionNode.dataset.newPageAfter === 'true';
+        }
+
+        // Stamp clean page numbers across all generated A4 portrait pages
+        const totalPages = pdf.getNumberOfPages();
+        for (let p = 1; p <= totalPages; p++) {
+          pdf.setPage(p);
+          pdf.setDrawColor(226, 232, 240);
+          pdf.setLineWidth(0.25);
+          pdf.line(marginXMm, pageHeightMm - 9.5, pageWidthMm - marginXMm, pageHeightMm - 9.5);
+          pdf.setFont('helvetica', 'normal');
+          pdf.setFontSize(8);
+          pdf.setTextColor(100, 116, 139);
+          pdf.text(
+            `2026 GLOCAL JUKHYANG SHANGHAI EXPEDITION  |  ID: ${studentId}`,
+            marginXMm,
+            pageHeightMm - 5.5
+          );
+          pdf.text(
+            `Page ${p} / ${totalPages}`,
+            pageWidthMm - marginXMm,
+            pageHeightMm - 5.5,
+            { align: 'right' }
+          );
         }
       }
 
@@ -222,8 +368,6 @@ export const PresentationExportView: React.FC<PresentationExportViewProps> = ({
       pdf.save(fileName);
     } catch (err) {
       console.warn('Direct PDF canvas export warning, falling back to print dialog:', err);
-      // Fail-safe fallback to browser print dialog
-      alert('PDF 파일 직접 변환을 완료하지 못하여 표준 인쇄 창으로 전환합니다. 인쇄 창에서 "PDF로 저장"을 선택하시면 고화질 PDF가 저장됩니다.');
       handlePrint(orientation);
     } finally {
       setIsGeneratingPdf(false);
@@ -699,7 +843,7 @@ export const PresentationExportView: React.FC<PresentationExportViewProps> = ({
     if (index >= 2 && index <= 9) {
       const placeIdx = index - 2;
       const place = PLACES_DATA[placeIdx];
-      const entry = safeEntries[place.id];
+      const entry = getPlaceEntry(place, placeIdx);
       const isStamped = entry?.stampAcquired;
 
       return (
@@ -746,18 +890,21 @@ export const PresentationExportView: React.FC<PresentationExportViewProps> = ({
           <div className="grid grid-cols-1 md:grid-cols-12 gap-5 my-auto">
             {/* Left Column */}
             <div className="md:col-span-5 space-y-3">
-              <div className="relative h-44 sm:h-52 rounded-xl overflow-hidden bg-slate-100 border border-slate-200 shadow-xs">
+              <div className="workbook-photo-16x9 relative aspect-video w-full rounded-xl overflow-hidden bg-slate-100 border border-slate-200 shadow-xs">
                 <img
+                  data-photo-16x9="true"
+                  data-photo-id={`slide-place-${placeIdx}`}
                   src={entry?.photoUrl || place.image}
                   alt={place.name}
+                  referrerPolicy="no-referrer"
                   className="w-full h-full object-cover"
                   onError={(e) => {
                     (e.target as HTMLImageElement).src = place.image;
                   }}
                 />
-                <div className="absolute inset-0 bg-gradient-to-t from-slate-950/60 via-transparent to-transparent pointer-events-none"></div>
+                <div className="absolute inset-0 bg-gradient-to-t from-slate-950/55 via-transparent to-transparent pointer-events-none"></div>
                 <div className="absolute bottom-2 left-3 right-3 flex items-center justify-between text-[11px] text-white bg-slate-900/80 px-2.5 py-1 rounded-md backdrop-blur-xs">
-                  <span className="truncate">{entry?.photoUrl ? '📸 학생 촬영 현장 인증 사진' : '🏛️ 탐방지 대표 전경'}</span>
+                  <span className="truncate">{entry?.photoUrl ? '📸 학생 촬영 현장 인증 사진 (16:9)' : '🏛️ 탐방지 대표 전경'}</span>
                   <span className="text-emerald-300 font-mono shrink-0">{place.location}</span>
                 </div>
               </div>
@@ -1049,15 +1196,22 @@ export const PresentationExportView: React.FC<PresentationExportViewProps> = ({
     return null;
   };
 
-  // Render Full A4 Portrait Printable Workbook Document (Bright White Background, High Legibility)
+  // Render Full A4 Portrait Printable Workbook Document
+  // Partitioned into discrete, non-clipping logical sections with 16:9 high-resolution photo frames
   const renderWorkbookDoc = () => {
+    const day1And2Reflections = safeDailyReflections.slice(0, 2);
+    const day3And4Reflections = safeDailyReflections.slice(2, 4);
+
     return (
-      <div id="workbook-document-root" className="workbook-print-doc space-y-8">
+      <div id="workbook-document-root" className="workbook-print-doc space-y-6">
         
-        {/* Page 1: Cover, Student Info & Trip Overview */}
-        <div className="workbook-a4-page w-full max-w-4xl mx-auto bg-white border border-slate-300 rounded-2xl p-8 sm:p-12 shadow-sm space-y-6 text-slate-900 break-inside-avoid">
-          {/* Header */}
-          <div className="border-b-2 border-emerald-800 pb-4 flex items-center justify-between">
+        {/* SECTION 1 (Cover & Trip Overview): Always dedicated Page 1 */}
+        <section
+          data-new-page-after="true"
+          className="workbook-pdf-section workbook-section-card workbook-force-page-break w-full max-w-4xl mx-auto bg-white border border-slate-300 rounded-2xl p-7 sm:p-10 shadow-sm space-y-6 text-slate-900 break-inside-avoid"
+        >
+          {/* Official Header */}
+          <div className="border-b-2 border-emerald-800 pb-3.5 flex items-center justify-between">
             <div className="flex items-center gap-2 text-emerald-800 font-bold text-xs sm:text-sm">
               <span>🎋 전라남도 담양교육지원청</span>
               <span>•</span>
@@ -1068,10 +1222,10 @@ export const PresentationExportView: React.FC<PresentationExportViewProps> = ({
             </span>
           </div>
 
-          {/* Title Area */}
-          <div className="text-center py-6 border-b border-slate-200 space-y-2">
+          {/* Title Banner */}
+          <div className="text-center py-5 border-b border-slate-200 space-y-2">
             <span className="inline-block px-3 py-1 rounded-full bg-emerald-50 border border-emerald-300 text-emerald-800 text-xs font-bold font-mono">
-              2026. 글로컬 죽향 역사·문화 탐방
+              I. 탐방 종합 개요 및 여정 안내
             </span>
             <h1 className="text-2xl sm:text-3xl md:text-4xl font-black text-slate-900 tracking-tight">
               중국 상하이 역사·문화 탐방 결과 보고서
@@ -1081,7 +1235,7 @@ export const PresentationExportView: React.FC<PresentationExportViewProps> = ({
             </p>
           </div>
 
-          {/* Student Profile Card (Clean Table Format) */}
+          {/* Student Profile Card */}
           <div className="rounded-xl border border-slate-300 overflow-hidden text-xs sm:text-sm">
             <div className="bg-slate-50 px-4 py-2 font-bold text-slate-800 border-b border-slate-300 flex items-center justify-between">
               <span>탐방 학생 기본 인적사항 및 이수 현황</span>
@@ -1108,7 +1262,7 @@ export const PresentationExportView: React.FC<PresentationExportViewProps> = ({
           </div>
 
           {/* 4-Day Timeline Table */}
-          <div className="space-y-3 pt-2">
+          <div className="space-y-2.5 pt-1">
             <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2">
               <Calendar className="w-4 h-4 text-emerald-700" />
               <span>3박 4일 주요 여정 및 연계 교과 타임라인</span>
@@ -1149,275 +1303,330 @@ export const PresentationExportView: React.FC<PresentationExportViewProps> = ({
           </div>
 
           {/* Verification Pledge */}
-          <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 text-xs text-slate-700 leading-relaxed flex items-center justify-between">
+          <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 text-xs text-slate-700 leading-relaxed flex items-center justify-between gap-4">
             <div>
               <p className="font-semibold text-slate-900">본 학생 보고서의 모든 기록과 탐구 답변은 현장에서 직접 체험하고 작성하였음을 확인합니다.</p>
-              <p className="text-slate-500 mt-0.5">담양여자중학교 3학년 {studentName} ({studentId})</p>
+              <p className="text-slate-500 mt-0.5">{studentSchool} 3학년 {studentName} ({studentId})</p>
             </div>
-            <div className="w-16 h-16 rounded-full border-2 border-dashed border-emerald-600 flex items-center justify-center text-[10px] text-emerald-800 font-bold shrink-0 text-center leading-tight">
+            <div className="w-15 h-15 rounded-full border-2 border-dashed border-emerald-600 flex items-center justify-center text-[10px] text-emerald-800 font-bold shrink-0 text-center leading-tight">
               학생 확인<br />(인)
             </div>
           </div>
+        </section>
 
-          <div className="flex items-center justify-between text-[11px] text-slate-400 pt-2 border-t border-slate-200">
-            <span>담양여자중학교 2026. 글로컬 죽향 역사문화탐방 학생 워크북</span>
-            <span className="font-mono">Page 1 / 7 (A4 세로 규격)</span>
-          </div>
-        </div>
-
-        {/* Pages 2 ~ 5: 8 Places Records (2 Places per Page) */}
-        {[0, 2, 4, 6].map((startIdx, pageOffset) => {
-          const p1 = PLACES_DATA[startIdx];
-          const p2 = PLACES_DATA[startIdx + 1];
-          const e1 = safeEntries[p1.id];
-          const e2 = p2 ? safeEntries[p2.id] : null;
+        {/* SECTIONS 2 ~ 9: 8 Places Individual Non-Splitting Sections (with 16:9 High-Res Student Photo Frame) */}
+        {PLACES_DATA.map((place, placeIdx) => {
+          const entry = getPlaceEntry(place, placeIdx);
+          const isStamped = !!entry?.stampAcquired;
+          const hasStudentPhoto = Boolean(entry?.photoUrl);
 
           return (
-            <div 
-              key={startIdx} 
-              className="workbook-a4-page w-full max-w-4xl mx-auto bg-white border border-slate-300 rounded-2xl p-8 sm:p-12 shadow-sm space-y-6 text-slate-900 break-inside-avoid"
+            <section
+              key={place.id}
+              className="workbook-pdf-section workbook-section-card w-full max-w-4xl mx-auto bg-white border border-slate-300 rounded-2xl p-6 sm:p-7 shadow-sm space-y-3.5 text-slate-900 break-inside-avoid"
             >
-              {/* Page Sub-Header */}
-              <div className="flex items-center justify-between border-b border-slate-300 pb-2 text-xs">
+              {/* Section Category Header Bar */}
+              <div className="flex items-center justify-between border-b border-slate-200 pb-2 text-[11px]">
                 <span className="font-bold text-emerald-800">
-                  II. 8대 역사문화 명소 현장 답사 및 교과연계 탐구 기록 ({startIdx + 1} ~ {Math.min(startIdx + 2, 8)}번)
+                  II. 8대 역사문화 명소 현장 답사 및 교과연계 탐구 기록 — 구획 {placeIdx + 1} / 8
                 </span>
                 <span className="text-slate-500 font-mono">
-                  {studentName} ({studentId}) | Page {pageOffset + 2} / 7
+                  {studentName} ({studentId})
                 </span>
               </div>
 
-              {/* Place Item 1 */}
-              {[p1, p2].filter(Boolean).map((place, pOrder) => {
-                const entry = safeEntries[place.id];
-                const isStamped = entry?.stampAcquired;
-
-                return (
-                  <div key={place.id} className="border border-slate-300 rounded-xl overflow-hidden p-4 space-y-3 bg-white">
-                    {/* Place Header Bar */}
-                    <div className="flex items-center justify-between border-b border-slate-200 pb-2">
-                      <div>
-                        <div className="text-[11px] text-slate-500 font-mono">
-                          SPOT 0{startIdx + pOrder + 1} • {place.dayLabel} ({place.timeSlot}) • {place.location}
-                        </div>
-                        <h4 className="text-base sm:text-lg font-bold text-slate-900 mt-0.5">
-                          {startIdx + pOrder + 1}. {place.name} <span className="text-xs font-normal text-slate-500 font-sans">({place.chineseName})</span>
-                        </h4>
-                      </div>
-
-                      {/* Official Stamp Box */}
-                      <div className={`px-3 py-1 rounded-lg border text-xs font-bold flex items-center gap-1.5 ${
-                        isStamped 
-                          ? 'border-rose-400 bg-rose-50 text-rose-700' 
-                          : 'border-slate-300 bg-slate-50 text-slate-400'
-                      }`}>
-                        {isStamped ? (
-                          <>
-                            <CheckCircle2 className="w-3.5 h-3.5 text-rose-600" />
-                            <span>★ 스탬프 직인 완료 ({entry?.stampedAt || '현장 인증'})</span>
-                          </>
-                        ) : (
-                          <>
-                            <HelpCircle className="w-3.5 h-3.5 text-slate-400" />
-                            <span>현장 미인증</span>
-                          </>
-                        )}
-                      </div>
-                    </div>
-
-                    {/* Content Grid */}
-                    <div className="grid grid-cols-1 md:grid-cols-12 gap-3 text-xs">
-                      {/* Left: Photo & Place Context (4 Cols) */}
-                      <div className="md:col-span-4 space-y-2">
-                        <div className="h-32 rounded-lg overflow-hidden border border-slate-200 bg-slate-100">
-                          <img 
-                            src={entry?.photoUrl || place.image} 
-                            alt={place.name} 
-                            className="w-full h-full object-cover"
-                            onError={(e) => {
-                              (e.target as HTMLImageElement).src = place.image;
-                            }}
-                          />
-                        </div>
-                        <div className="p-2.5 rounded-lg bg-slate-50 border border-slate-200 text-[11px] leading-relaxed space-y-1">
-                          <strong className="text-emerald-800 block font-bold">장소 의의 및 독립운동사 연계</strong>
-                          <p className="text-slate-600 line-clamp-3">{place.koreaConnection || place.features}</p>
-                        </div>
-                      </div>
-
-                      {/* Right: Curriculum Questions & Student Answers (8 Cols) */}
-                      <div className="md:col-span-8 space-y-2">
-                        <div className="space-y-1.5">
-                          {place.curriculumLinks.map((link, cIdx) => {
-                            const respKey = `${link.subject}_${cIdx}`;
-                            const ans = entry?.curriculumResponses?.[respKey] || '';
-                            return (
-                              <div key={cIdx} className="p-2 rounded-lg bg-slate-50 border border-slate-200 space-y-1">
-                                <span className="font-bold text-emerald-800 text-[11px]">
-                                  [{link.subject}] {link.title}
-                                </span>
-                                <p className="text-[10px] text-slate-500 leading-tight">
-                                  Q. {link.guideQuestion}
-                                </p>
-                                <div className="p-1.5 rounded bg-white border border-slate-200 text-[11px] text-slate-900 font-medium leading-relaxed">
-                                  A. {ans || '(학생 작성 내용 없음)'}
-                                </div>
-                              </div>
-                            );
-                          })}
-                        </div>
-
-                        {/* One Line Reflection */}
-                        <div className="p-2 rounded-lg bg-emerald-50/60 border border-emerald-200 text-[11px]">
-                          <strong className="text-emerald-900 font-bold block mb-0.5">✍️ 현장 한줄 소감:</strong>
-                          <p className="text-slate-800 italic">
-                            "{entry?.reflectionText?.trim() || `${place.name}을(를) 직접 답사하며 역사의 숨결을 피부로 느끼고 선열들의 숭고한 정신을 배웠습니다.`}"
-                          </p>
-                        </div>
-                      </div>
-                    </div>
+              {/* Place Title & Stamp Status */}
+              <div className="flex flex-wrap items-center justify-between gap-2 pb-1">
+                <div>
+                  <div className="text-[11px] text-slate-500 font-mono">
+                    SPOT 0{placeIdx + 1} • {place.dayLabel} ({place.timeSlot}) • {place.location}
                   </div>
-                );
-              })}
+                  <h4 className="text-base sm:text-lg font-black text-slate-900 mt-0.5">
+                    {placeIdx + 1}. {place.name}{' '}
+                    <span className="text-xs font-normal text-slate-500 font-sans">({place.chineseName})</span>
+                  </h4>
+                </div>
 
-              <div className="flex items-center justify-between text-[11px] text-slate-400 pt-2 border-t border-slate-200">
-                <span>담양여자중학교 2026. 글로컬 죽향 역사문화탐방 학생 워크북</span>
-                <span className="font-mono">Page {pageOffset + 2} / 7 (A4 세로 규격)</span>
+                <div
+                  className={`px-3 py-1 rounded-lg border text-xs font-bold flex items-center gap-1.5 ${
+                    isStamped
+                      ? 'border-rose-400 bg-rose-50 text-rose-700'
+                      : 'border-slate-300 bg-slate-50 text-slate-400'
+                  }`}
+                >
+                  {isStamped ? (
+                    <>
+                      <CheckCircle2 className="w-3.5 h-3.5 text-rose-600" />
+                      <span>★ 스탬프 직인 완료 ({entry?.stampedAt || '현장 인증'})</span>
+                    </>
+                  ) : (
+                    <>
+                      <HelpCircle className="w-3.5 h-3.5 text-slate-400" />
+                      <span>현장 미인증</span>
+                    </>
+                  )}
+                </div>
               </div>
-            </div>
+
+              {/* Top Row: Exact 16:9 High-Resolution Photo (6 cols) + Historical Context (6 cols) */}
+              <div className="grid grid-cols-1 sm:grid-cols-12 gap-4 items-stretch text-xs">
+                <div className="sm:col-span-6 flex flex-col justify-between space-y-1.5">
+                  <div className="workbook-photo-16x9 relative aspect-video w-full rounded-xl overflow-hidden border border-slate-300 bg-slate-100">
+                    <img
+                      data-photo-16x9="true"
+                      data-photo-id={`workbook-place-${placeIdx}`}
+                      src={entry?.photoUrl || place.image}
+                      alt={place.name}
+                      referrerPolicy="no-referrer"
+                      className="w-full h-full object-cover"
+                      onError={(e) => {
+                        (e.target as HTMLImageElement).src = place.image;
+                      }}
+                    />
+                  </div>
+                  <div className="flex items-center justify-between text-[10px] px-1 text-slate-500">
+                    <span className={hasStudentPhoto ? 'font-bold text-emerald-800' : 'text-slate-500'}>
+                      {hasStudentPhoto ? '📸 학생 업로드 현장 인증 사진 (16:9 고화질 원본 비율)' : '🏛️ 탐방지 참고 사진 (16:9 비율)'}
+                    </span>
+                    <span className="font-mono">{place.location}</span>
+                  </div>
+                </div>
+
+                <div className="sm:col-span-6 p-3.5 rounded-xl bg-slate-50 border border-slate-200 text-[11px] leading-relaxed flex flex-col justify-between space-y-2">
+                  <div>
+                    <strong className="text-emerald-800 block font-bold mb-0.5">방문지 핵심 특징</strong>
+                    <p className="text-slate-700">{place.features}</p>
+                  </div>
+                  {place.koreaConnection && (
+                    <div className="pt-2 border-t border-slate-200">
+                      <strong className="text-teal-800 block font-bold mb-0.5">우리나라 독립운동사 및 교과 연계성</strong>
+                      <p className="text-slate-700">{place.koreaConnection}</p>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Middle Row: Full-Width Curriculum Questions & Student Answers */}
+              <div className="space-y-2 pt-0.5">
+                {place.curriculumLinks.map((link, cIdx) => {
+                  const respKey = `${link.subject}_${cIdx}`;
+                  const ans = entry?.curriculumResponses?.[respKey] || '';
+                  return (
+                    <div key={cIdx} className="p-2.5 rounded-xl bg-slate-50 border border-slate-200 space-y-1">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="font-bold text-emerald-800 text-[11px]">
+                          [{link.subject}] {link.title}
+                        </span>
+                        <span className="text-[10px] text-slate-400">{link.description}</span>
+                      </div>
+                      <p className="text-[11px] text-slate-600 leading-snug">
+                        Q. {link.guideQuestion}
+                      </p>
+                      <div className="p-2 rounded-lg bg-white border border-slate-200 text-[11px] text-slate-900 font-medium leading-relaxed whitespace-pre-wrap break-words">
+                        A. {ans || '(학생 작성 내용 없음)'}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* Bottom Row: Full-Width Student Field Reflection */}
+              <div className="p-2.5 rounded-xl bg-emerald-50/70 border border-emerald-200 text-[11px]">
+                <strong className="text-emerald-900 font-bold block mb-0.5">✍️ 현장 답사 한줄 소감:</strong>
+                <p className="text-slate-800 italic leading-relaxed whitespace-pre-wrap break-words">
+                  "{entry?.reflectionText?.trim() || `${place.name}을(를) 직접 답사하며 역사의 숨결을 피부로 느끼고 선열들의 숭고한 정신을 배웠습니다.`}"
+                </p>
+              </div>
+            </section>
           );
         })}
 
-        {/* Page 6: Weather & Daily Reflections */}
-        <div className="workbook-a4-page w-full max-w-4xl mx-auto bg-white border border-slate-300 rounded-2xl p-8 sm:p-12 shadow-sm space-y-6 text-slate-900 break-inside-avoid">
+        {/* SECTION 10: Part III-1 Weather Investigation Section (Starts cleanly on a new page) */}
+        <section
+          data-new-page-before="true"
+          className="workbook-pdf-section workbook-section-card workbook-start-new-page w-full max-w-4xl mx-auto bg-white border border-slate-300 rounded-2xl p-6 sm:p-8 shadow-sm space-y-4 text-slate-900 break-inside-avoid"
+        >
           <div className="flex items-center justify-between border-b border-slate-300 pb-2 text-xs">
             <span className="font-bold text-emerald-800">
-              III. 상하이 4일간 기후 조사 및 3박 4일 일자별 성찰일지 (Daily Reflection)
+              III-1. 상하이 4일간 현장 기상 관측 및 기후 비교 조사
             </span>
             <span className="text-slate-500 font-mono">
-              {studentName} ({studentId}) | Page 6 / 7
+              {studentName} ({studentId})
             </span>
           </div>
 
-          {/* Weather Table */}
-          <div className="space-y-2">
-            <h4 className="text-xs font-bold text-slate-900 flex items-center gap-1.5">
+          <div className="space-y-2.5">
+            <h4 className="text-sm font-bold text-slate-900 flex items-center gap-1.5">
               <CloudSun className="w-4 h-4 text-emerald-700" />
-              <span>상하이 4일간 현장 기상 관측 및 기후 비교 조사</span>
+              <span>일자별 기온 · 날씨 및 학생 기상 관측 기록표</span>
             </h4>
             <div className="overflow-x-auto rounded-xl border border-slate-300">
               <table className="w-full text-xs text-left">
                 <thead className="bg-slate-100 text-slate-700 font-bold border-b border-slate-300">
                   <tr>
-                    <th className="p-2 w-16">일자</th>
-                    <th className="p-2 w-20">날씨/기온</th>
-                    <th className="p-2 w-44">현장 추천 복장</th>
-                    <th className="p-2">학생 기후 관측 및 탐구 소감</th>
+                    <th className="p-2.5 w-18">일자</th>
+                    <th className="p-2.5 w-24">날씨 / 기온</th>
+                    <th className="p-2.5 w-44">현장 추천 복장</th>
+                    <th className="p-2.5">학생 기후 관측 및 탐구 소감</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-200 text-slate-800">
                   {safeWeatherRecords.map((w) => (
                     <tr key={w.day}>
-                      <td className="p-2 font-bold text-emerald-800 bg-slate-50">DAY {w.day}</td>
-                      <td className="p-2">
+                      <td className="p-2.5 font-bold text-emerald-800 bg-slate-50">DAY {w.day}</td>
+                      <td className="p-2.5">
                         <span className="font-bold block">{w.forecast || '맑음'}</span>
                         <span className="text-[11px] text-sky-700 font-mono">{w.morningTemp || 17}°C ~ {w.afternoonTemp || 23}°C</span>
                       </td>
-                      <td className="p-2 text-[11px] text-slate-600 leading-snug">{w.clothingNotes || '편안한 복장'}</td>
-                      <td className="p-2 text-[11px] leading-relaxed">{w.studentInvestigation || '(학생 관측 기록 없음)'}</td>
+                      <td className="p-2.5 text-[11px] text-slate-600 leading-snug">{w.clothingNotes || '편안한 복장'}</td>
+                      <td className="p-2.5 text-[11px] leading-relaxed whitespace-pre-wrap break-words">
+                        {w.studentInvestigation || '(학생 관측 기록 없음)'}
+                      </td>
                     </tr>
                   ))}
                 </tbody>
               </table>
             </div>
           </div>
+        </section>
 
-          {/* Daily Reflections Grid */}
-          <div className="space-y-2 pt-2">
-            <h4 className="text-xs font-bold text-slate-900 flex items-center gap-1.5">
-              <BookOpen className="w-4 h-4 text-emerald-700" />
-              <span>3박 4일 일자별 오늘의 성찰일지 기록</span>
-            </h4>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
-              {safeDailyReflections.slice(0, 4).map((r) => (
-                <div key={r.day} className="p-3 rounded-xl border border-slate-300 bg-slate-50 space-y-1.5">
-                  <div className="font-bold text-emerald-800 flex items-center justify-between border-b border-slate-200 pb-1">
+        {/* SECTION 11: Part III-2a Daily Reflections (Day 1 & Day 2) */}
+        <section className="workbook-pdf-section workbook-section-card w-full max-w-4xl mx-auto bg-white border border-slate-300 rounded-2xl p-6 sm:p-8 shadow-sm space-y-4 text-slate-900 break-inside-avoid">
+          <div className="flex items-center justify-between border-b border-slate-300 pb-2 text-xs">
+            <span className="font-bold text-emerald-800">
+              III-2. 3박 4일 일자별 오늘의 성찰일지 (제1일차 · 제2일차)
+            </span>
+            <span className="text-slate-500 font-mono">
+              {studentName} ({studentId})
+            </span>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
+            {day1And2Reflections.map((r) => (
+              <div key={r.day} className="p-4 rounded-xl border border-slate-300 bg-slate-50 space-y-2.5">
+                <div className="font-bold text-emerald-800 flex items-center justify-between border-b border-slate-200 pb-1.5">
+                  <span className="flex items-center gap-1.5">
+                    <BookOpen className="w-3.5 h-3.5 text-emerald-700" />
                     <span>제{r.day}일차 성찰일지</span>
+                  </span>
+                  <span className="text-[11px] text-slate-500 font-normal">{r.date || ''}</span>
+                </div>
+                <div className="space-y-2 text-[11px]">
+                  <div className="p-2 rounded-lg bg-white border border-slate-200">
+                    <strong className="text-emerald-800 block mb-0.5">1. 오늘 가장 기억에 남는 장면</strong>
+                    <p className="text-slate-900 leading-relaxed whitespace-pre-wrap break-words">{r.memorableScene || '(내용 미작성)'}</p>
+                  </div>
+                  <div className="p-2 rounded-lg bg-white border border-slate-200">
+                    <strong className="text-emerald-800 block mb-0.5">2. 크게 느낀 생각이나 감정</strong>
+                    <p className="text-slate-900 leading-relaxed whitespace-pre-wrap break-words">{r.biggestEmotion || '(내용 미작성)'}</p>
+                  </div>
+                  <div className="p-2 rounded-lg bg-white border border-slate-200">
+                    <strong className="text-emerald-800 block mb-0.5">3. 오늘 새롭게 알게 된 점</strong>
+                    <p className="text-slate-900 leading-relaxed whitespace-pre-wrap break-words">{r.newlyLearned || '(내용 미작성)'}</p>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
+
+        {/* SECTION 12: Part III-2b Daily Reflections (Day 3 & Day 4) */}
+        {day3And4Reflections.length > 0 && (
+          <section className="workbook-pdf-section workbook-section-card w-full max-w-4xl mx-auto bg-white border border-slate-300 rounded-2xl p-6 sm:p-8 shadow-sm space-y-4 text-slate-900 break-inside-avoid">
+            <div className="flex items-center justify-between border-b border-slate-300 pb-2 text-xs">
+              <span className="font-bold text-emerald-800">
+                III-3. 3박 4일 일자별 오늘의 성찰일지 (제3일차 · 제4일차)
+              </span>
+              <span className="text-slate-500 font-mono">
+                {studentName} ({studentId})
+              </span>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
+              {day3And4Reflections.map((r) => (
+                <div key={r.day} className="p-4 rounded-xl border border-slate-300 bg-slate-50 space-y-2.5">
+                  <div className="font-bold text-emerald-800 flex items-center justify-between border-b border-slate-200 pb-1.5">
+                    <span className="flex items-center gap-1.5">
+                      <BookOpen className="w-3.5 h-3.5 text-emerald-700" />
+                      <span>제{r.day}일차 성찰일지</span>
+                    </span>
                     <span className="text-[11px] text-slate-500 font-normal">{r.date || ''}</span>
                   </div>
-                  <div className="space-y-1 text-[11px]">
-                    <div>
-                      <strong className="text-slate-700 block">1. 가장 기억에 남는 장면:</strong>
-                      <p className="text-slate-900 leading-tight">{r.memorableScene || '(내용 미작성)'}</p>
+                  <div className="space-y-2 text-[11px]">
+                    <div className="p-2 rounded-lg bg-white border border-slate-200">
+                      <strong className="text-emerald-800 block mb-0.5">1. 오늘 가장 기억에 남는 장면</strong>
+                      <p className="text-slate-900 leading-relaxed whitespace-pre-wrap break-words">{r.memorableScene || '(내용 미작성)'}</p>
                     </div>
-                    <div>
-                      <strong className="text-slate-700 block">2. 크게 느낀 생각/감정:</strong>
-                      <p className="text-slate-900 leading-tight">{r.biggestEmotion || '(내용 미작성)'}</p>
+                    <div className="p-2 rounded-lg bg-white border border-slate-200">
+                      <strong className="text-emerald-800 block mb-0.5">2. 크게 느낀 생각이나 감정</strong>
+                      <p className="text-slate-900 leading-relaxed whitespace-pre-wrap break-words">{r.biggestEmotion || '(내용 미작성)'}</p>
                     </div>
-                    <div>
-                      <strong className="text-slate-700 block">3. 새롭게 알게 된 점:</strong>
-                      <p className="text-slate-900 leading-tight">{r.newlyLearned || '(내용 미작성)'}</p>
+                    <div className="p-2 rounded-lg bg-white border border-slate-200">
+                      <strong className="text-emerald-800 block mb-0.5">3. 오늘 새롭게 알게 된 점</strong>
+                      <p className="text-slate-900 leading-relaxed whitespace-pre-wrap break-words">{r.newlyLearned || '(내용 미작성)'}</p>
                     </div>
                   </div>
                 </div>
               ))}
             </div>
-          </div>
+          </section>
+        )}
 
-          <div className="flex items-center justify-between text-[11px] text-slate-400 pt-2 border-t border-slate-200">
-            <span>담양여자중학교 2026. 글로컬 죽향 역사문화탐방 학생 워크북</span>
-            <span className="font-mono">Page 6 / 7 (A4 세로 규격)</span>
-          </div>
-        </div>
-
-        {/* Page 7: Reading Activity & Official Certificate */}
-        <div className="workbook-a4-page w-full max-w-4xl mx-auto bg-white border border-slate-300 rounded-2xl p-8 sm:p-12 shadow-sm space-y-6 text-slate-900 break-inside-avoid">
+        {/* SECTION 13: Part IV-1 Integrated Reading Activity (Starts cleanly on a new page) */}
+        <section
+          data-new-page-before="true"
+          className="workbook-pdf-section workbook-section-card workbook-start-new-page w-full max-w-4xl mx-auto bg-white border border-slate-300 rounded-2xl p-6 sm:p-8 shadow-sm space-y-4 text-slate-900 break-inside-avoid"
+        >
           <div className="flex items-center justify-between border-b border-slate-300 pb-2 text-xs">
             <span className="font-bold text-emerald-800">
-              IV. 역사 융합 독서 활동 및 종합 수료 확인서
+              IV-1. 역사 융합 독서 활동: 백범일지와 청년 의사의 혼
             </span>
             <span className="text-slate-500 font-mono">
-              {studentName} ({studentId}) | Page 7 / 7
+              {studentName} ({studentId})
             </span>
           </div>
 
-          {/* Integrated Reading Activity */}
-          <div className="space-y-3">
-            <h4 className="text-xs font-bold text-slate-900 flex items-center gap-1.5">
-              <BookOpen className="w-4 h-4 text-emerald-700" />
-              <span>역사 융합 독서 활동: 백범일지와 청년 의사의 혼</span>
-            </h4>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
-              <div className="p-3 rounded-xl border border-slate-300 bg-slate-50 space-y-1">
-                <strong className="text-emerald-800 block font-bold text-[11px]">1. 도서 핵심 내용 및 독서 요약</strong>
-                <p className="text-slate-700 text-[11px] leading-relaxed">
-                  {safeBookActivity.readingSummary || '김구 선생의 백범일지와 상하이 임시정부를 중심으로 조국의 독립을 위해 헌신한 한인애국단과 청년 의사들의 숭고한 결의를 읽고 시대적 배경을 탐구하였습니다.'}
-                </p>
-              </div>
-              <div className="p-3 rounded-xl border border-slate-300 bg-slate-50 space-y-1">
-                <strong className="text-emerald-800 block font-bold text-[11px]">2. 김구·윤봉길 회중시계 교환의 상징적 의미</strong>
-                <p className="text-slate-700 text-[11px] leading-relaxed">
-                  {safeBookActivity.clockExchangeMeaning || '윤봉길 의사가 거사 직전 자신의 새 시계와 김구 선생의 낡은 시계를 바꾸며 남긴 말은, 죽음을 앞두고도 오직 조국의 광복만을 생각했던 두 분의 굳은 신뢰와 영원한 독립의 맹세를 상징합니다.'}
-                </p>
-              </div>
-              <div className="p-3 rounded-xl border border-slate-300 bg-slate-50 space-y-1">
-                <strong className="text-emerald-800 block font-bold text-[11px]">3. 내가 만약 그 시대의 청년 영웅이었다면</strong>
-                <p className="text-slate-700 text-[11px] leading-relaxed">
-                  {safeBookActivity.ifIWereHero || '만약 내가 일제강점기 그 엄혹한 시대를 살아갔다면, 나 자신의 안위보다는 억압받는 민족의 고통에 공감하고 당당하게 독립운동의 뜻에 동참하며 정의로운 길을 선택했을 것입니다.'}
-                </p>
-              </div>
-              <div className="p-3 rounded-xl border border-slate-300 bg-slate-50 space-y-1">
-                <strong className="text-emerald-800 block font-bold text-[11px]">4. 미래의 나에게 보내는 약속과 다짐</strong>
-                <p className="text-slate-700 text-[11px] leading-relaxed">
-                  {safeBookActivity.myPromiseToFuture || '선열들이 피땀으로 지켜낸 평화로운 대한민국에서 살아가는 오늘, 나 역시 배움을 게을리하지 않고 담양의 푸른 대나무처럼 곧은 지조와 넓은 세계관을 가진 인재로 성장할 것을 다짐합니다.'}
-                </p>
-              </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5 text-xs">
+            <div className="p-3.5 rounded-xl border border-slate-300 bg-slate-50 space-y-1.5">
+              <strong className="text-emerald-800 block font-bold text-[11px]">1. 도서 핵심 내용 및 독서 요약</strong>
+              <p className="text-slate-800 text-[11px] leading-relaxed whitespace-pre-wrap break-words">
+                {safeBookActivity.readingSummary || '김구 선생의 백범일지와 상하이 임시정부를 중심으로 조국의 독립을 위해 헌신한 한인애국단과 청년 의사들의 숭고한 결의를 읽고 시대적 배경을 탐구하였습니다.'}
+              </p>
+            </div>
+            <div className="p-3.5 rounded-xl border border-slate-300 bg-slate-50 space-y-1.5">
+              <strong className="text-emerald-800 block font-bold text-[11px]">2. 김구·윤봉길 회중시계 교환의 상징적 의미</strong>
+              <p className="text-slate-800 text-[11px] leading-relaxed whitespace-pre-wrap break-words">
+                {safeBookActivity.clockExchangeMeaning || '윤봉길 의사가 거사 직전 자신의 새 시계와 김구 선생의 낡은 시계를 바꾸며 남긴 말은, 죽음을 앞두고도 오직 조국의 광복만을 생각했던 두 분의 굳은 신뢰와 영원한 독립의 맹세를 상징합니다.'}
+              </p>
+            </div>
+            <div className="p-3.5 rounded-xl border border-slate-300 bg-slate-50 space-y-1.5">
+              <strong className="text-emerald-800 block font-bold text-[11px]">3. 내가 만약 그 시대의 청년 영웅이었다면</strong>
+              <p className="text-slate-800 text-[11px] leading-relaxed whitespace-pre-wrap break-words">
+                {safeBookActivity.ifIWereHero || '만약 내가 일제강점기 그 엄혹한 시대를 살아갔다면, 나 자신의 안위보다는 억압받는 민족의 고통에 공감하고 당당하게 독립운동의 뜻에 동참하며 정의로운 길을 선택했을 것입니다.'}
+              </p>
+            </div>
+            <div className="p-3.5 rounded-xl border border-slate-300 bg-slate-50 space-y-1.5">
+              <strong className="text-emerald-800 block font-bold text-[11px]">4. 미래의 나에게 보내는 약속과 다짐</strong>
+              <p className="text-slate-800 text-[11px] leading-relaxed whitespace-pre-wrap break-words">
+                {safeBookActivity.myPromiseToFuture || '선열들이 피땀으로 지켜낸 평화로운 대한민국에서 살아가는 오늘, 나 역시 배움을 게을리하지 않고 담양의 푸른 대나무처럼 곧은 지조와 넓은 세계관을 가진 인재로 성장할 것을 다짐합니다.'}
+              </p>
             </div>
           </div>
+        </section>
 
-          {/* Official Verification Certificate Box */}
-          <div className="p-6 rounded-2xl border-2 border-emerald-800 bg-white text-center space-y-4 shadow-xs mt-6">
-            <div className="inline-block p-2 rounded-full bg-emerald-100 text-emerald-800 mb-1">
+        {/* SECTION 14: Part IV-2 Official Completion Certificate (Atomic Non-Splitting Block) */}
+        <section className="workbook-pdf-section workbook-section-card w-full max-w-4xl mx-auto bg-white border border-slate-300 rounded-2xl p-6 sm:p-8 shadow-sm space-y-4 text-slate-900 break-inside-avoid">
+          <div className="flex items-center justify-between border-b border-slate-300 pb-2 text-xs">
+            <span className="font-bold text-emerald-800">
+              IV-2. 탐방 활동 종합 수료 확인서
+            </span>
+            <span className="text-slate-500 font-mono">
+              {studentName} ({studentId})
+            </span>
+          </div>
+
+          <div className="p-6 rounded-2xl border-2 border-emerald-800 bg-white text-center space-y-4">
+            <div className="inline-block p-2 rounded-full bg-emerald-100 text-emerald-800 mb-0.5">
               <Award className="w-7 h-7" />
             </div>
 
@@ -1427,23 +1636,23 @@ export const PresentationExportView: React.FC<PresentationExportViewProps> = ({
 
             <div className="max-w-lg mx-auto text-xs text-slate-700 leading-relaxed space-y-1.5">
               <p>
-                위 학생은 전라남도 담양교육지원청 및 담양여자중학교에서 주관한 
-                <strong>「2026. 글로컬 죽향 역사문화탐방」</strong> 프로그램에 참여하여 
-                상하이 8대 역사문화 명소 답사, 교과연계 현장 융합 탐구, 기상 관측 및 성찰일지 전 과정을 
+                위 학생은 전라남도 담양교육지원청 및 담양여자중학교에서 주관한{' '}
+                <strong>「2026. 글로컬 죽향 역사문화탐방」</strong> 프로그램에 참여하여{' '}
+                상하이 8대 역사문화 명소 답사, 교과연계 현장 융합 탐구, 기상 관측 및 성찰일지 전 과정을{' '}
                 성실히 완수하였음을 확인합니다.
               </p>
             </div>
 
-            <div className="grid grid-cols-3 gap-2 max-w-md mx-auto pt-2 border-t border-slate-200 text-xs">
-              <div className="p-2 rounded bg-slate-50 border border-slate-200">
+            <div className="grid grid-cols-3 gap-2.5 max-w-md mx-auto pt-2 border-t border-slate-200 text-xs">
+              <div className="p-2 rounded-lg bg-slate-50 border border-slate-200">
                 <span className="text-[10px] text-slate-500 block">소속</span>
                 <span className="font-bold text-slate-900">{studentSchool}</span>
               </div>
-              <div className="p-2 rounded bg-slate-50 border border-slate-200">
+              <div className="p-2 rounded-lg bg-slate-50 border border-slate-200">
                 <span className="text-[10px] text-slate-500 block">성명 (학번)</span>
                 <span className="font-bold text-slate-900">{studentName} ({studentId})</span>
               </div>
-              <div className="p-2 rounded bg-slate-50 border border-slate-200">
+              <div className="p-2 rounded-lg bg-slate-50 border border-slate-200">
                 <span className="text-[10px] text-slate-500 block">스탬프 달성</span>
                 <span className="font-bold text-emerald-800">{completedStamps} / 8 완료</span>
               </div>
@@ -1456,12 +1665,7 @@ export const PresentationExportView: React.FC<PresentationExportViewProps> = ({
               </div>
             </div>
           </div>
-
-          <div className="flex items-center justify-between text-[11px] text-slate-400 pt-2 border-t border-slate-200">
-            <span>2026. GLOCAL JUKHYANG HISTORICAL & CULTURAL EXPEDITION</span>
-            <span className="font-mono">Page 7 / 7 (END OF REPORT)</span>
-          </div>
-        </div>
+        </section>
 
       </div>
     );
